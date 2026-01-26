@@ -1,5 +1,6 @@
 // Main.js — single modal loader implementation (no recursion) + app logic
 // Updated to integrate the shared UI utilities (showGlobalLoader/hideGlobalLoader, showSuccessModal, showConfirmModal, showToast)
+// and to reliably show a modal-local loader inside the view modal when it is active.
 
 // ----------- CACHED ELEMENTS & VARIABLES -----------
 const cachedElements = {};
@@ -37,21 +38,28 @@ function debounce(func, wait) {
 function showLoading(message = 'Processing...') {
   try {
     const viewModal = document.getElementById('viewApplicationModal');
-    const isViewOpen = viewModal && (viewModal.style.display === 'block' || viewModal.classList.contains('active'));
+    // Detect visible/open modal robustly: either has .active OR computed display not 'none'
+    const isViewOpen = viewModal && (viewModal.classList.contains('active') || window.getComputedStyle(viewModal).display !== 'none');
     if (isViewOpen) {
       let local = document.getElementById('modal-local-loading');
       if (!local) {
         local = document.createElement('div');
         local.id = 'modal-local-loading';
         local.className = 'modal-local-loading';
+        // Ensure the loader covers the modal content — position absolute with inset:0
         local.innerHTML = `
           <div class="modal-local-card" role="status" aria-live="polite" aria-label="Loading">
             <div class="spinner large" aria-hidden="true"></div>
             <div class="modal-local-message"></div>
           </div>
         `;
+        // Place inside the modal-content so it overlays only the modal
         const container = viewModal.querySelector('.modal-content') || viewModal;
-        if (!container.style.position) container.style.position = 'relative';
+        // Ensure container has positioning context (relative) so absolute inset works
+        const computedPosition = window.getComputedStyle(container).position;
+        if (!computedPosition || computedPosition === 'static') {
+          container.style.position = 'relative';
+        }
         container.appendChild(local);
       }
       const msgEl = local.querySelector('.modal-local-message');
@@ -60,12 +68,12 @@ function showLoading(message = 'Processing...') {
       return;
     }
 
-    // Use global loader if available
+    // Use global loader if available (ui-modals)
     if (typeof window.showGlobalLoader === 'function') {
       window.showGlobalLoader(message);
       return;
     }
-    // Fallback to UI element with id 'global-loading-modal' if present
+    // Fallback to legacy global modal element
     let globalModal = document.getElementById('global-loading-modal');
     if (!globalModal) {
       globalModal = document.createElement('div');
@@ -91,15 +99,24 @@ function showLoading(message = 'Processing...') {
 
 function hideLoading() {
   try {
+    // If modal-local loading exists and visible, hide it
     const local = document.getElementById('modal-local-loading');
     if (local && local.style.display !== 'none') {
-      local.style.display = 'none';
+      // Prefer removing the element entirely so repeated calls create a fresh instance
+      try {
+        local.parentNode && local.parentNode.removeChild(local);
+      } catch (e) {
+        local.style.display = 'none';
+      }
       return;
     }
+
+    // Global UI loader via ui-modals
     if (typeof window.hideGlobalLoader === 'function') {
       window.hideGlobalLoader();
       return;
     }
+
     const globalModal = document.getElementById('global-loading-modal');
     if (globalModal) globalModal.style.display = 'none';
     try { document.body.style.overflow = ''; } catch (e) {}
@@ -108,7 +125,7 @@ function hideLoading() {
   }
 }
 
-// expose these for other modules that expect them
+// expose these for other modules that expect them (don't overwrite if already provided by ui-modals)
 window.showLoading = window.showLoading || showLoading;
 window.hideLoading = window.hideLoading || hideLoading;
 
