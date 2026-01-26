@@ -1,5 +1,6 @@
 // viewApplicationJS - updated to remove google.script.run and to use apiService + UI modals
 // Also integrates global loader and promise-based dialogs
+// Ensures modal-local loader can appear because showLoading now reliably detects modal visibility.
 
 console.log('viewApplicationJS loaded (scroll + edit changes)');
 
@@ -162,7 +163,9 @@ function initViewApplicationModal(appData) {
   safeSetText('signature-branchManager-name', appData.branchManagerName || appData.branchManager || '');
 
   // Documents
-  updateDocumentButtonsForReview(appData.documents || {});
+  // cache currentAppData.documents so openDocument can use it
+  currentAppData.documents = appData.documents || {};
+  updateDocumentButtonsForReview(currentAppData.documents);
 
   // Show/hide comment editors based on current user role & application stage
   const userRole = (localStorage.getItem('userRole') || '').toString();
@@ -175,7 +178,13 @@ function initViewApplicationModal(appData) {
   const modal = document.getElementById('viewApplicationModal');
   if (modal) {
     modal.style.display = 'block';
-    // do NOT set document.body.style.overflow = 'hidden' so the main page can scroll along with the modal
+    modal.classList.add('active');
+    // Ensure modal content has position:relative so modal-local loader can be appended
+    const container = modal.querySelector('.modal-content') || modal;
+    const computedPosition = window.getComputedStyle(container).position;
+    if (!computedPosition || computedPosition === 'static') {
+      container.style.position = 'relative';
+    }
   }
 }
 
@@ -183,12 +192,13 @@ function closeViewApplicationModal() {
   const modal = document.getElementById('viewApplicationModal');
   if (modal) {
     modal.style.display = 'none';
+    modal.classList.remove('active');
   }
   try { document.body.style.overflow = ''; } catch (e) {}
 }
 
+// When "Edit" is clicked from view modal — close view and open new/edit modal
 function openEditSection(tabName) {
-  // Close the view modal, then open the newApplication modal in edit mode
   try {
     if (!currentAppData || !currentAppData.appNumber) {
       if (typeof window.showToast === 'function') window.showToast('Application not loaded.', 'error');
@@ -206,7 +216,6 @@ function openEditSection(tabName) {
     if (typeof showNewApplicationModal === 'function') {
       showNewApplicationModal(currentAppData.appNumber);
     } else {
-      // fallback: attempt to open using global function available in app
       window.showNewApplicationModal && window.showNewApplicationModal(currentAppData.appNumber);
     }
   } catch (e) {
