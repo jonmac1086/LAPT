@@ -1,0 +1,149 @@
+/* ui-modals.css
+   Styles for ui-modals.js. Drop this into your project and include it in <head>.
+   This file provides nicer visuals than the inline fallback.
+*/
+
+.ui-global-loader {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 6000;
+  align-items: center;
+  justify-content: center;
+  background: rgba(2,6,23,0.45);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+
+.ui-global-loader .ui-loader-card {
+  background: #ffffff;
+  padding: 18px 20px;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+  box-shadow: 0 10px 30px rgba(2,6,23,0.18);
+  min-width: 260px;
+}
+
+.ui-loader-spinner {
+  border: 4px solid rgba(2,6,23,0.06);
+  border-top: 4px solid #2563eb;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  animation: ui-spin 1s linear infinite;
+}
+
+@keyframes ui-spin { to { transform: rotate(360deg); } }
+
+.ui-loader-message {
+  font-weight: 700;
+  color: #0f172a;
+  font-size: 0.98rem;
+  text-align: center;
+}
+
+/* Modal overlay */
+.ui-modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(2,6,23,0.45);
+  z-index: 7000;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+/* Modal card */
+.ui-modal {
+  background: #ffffff;
+  border-radius: 10px;
+  min-width: 320px;
+  max-width: 720px;
+  width: 100%;
+  box-shadow: 0 12px 38px rgba(2,6,23,0.18);
+  padding: 18px;
+  outline: none;
+}
+
+.ui-modal-title {
+  font-weight: 800;
+  font-size: 1.05rem;
+  color: #0f172a;
+  margin-bottom: 6px;
+}
+
+.ui-modal-body {
+  color: #374151;
+  margin-bottom: 12px;
+  font-size: 0.98rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+.ui-modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
+
+/* Buttons */
+.ui-btn {
+  border-radius: 8px;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 0.95rem;
+  min-width: 80px;
+}
+
+.ui-btn.primary {
+  background: linear-gradient(180deg,#2563eb 0%, #1d4ed8 100%);
+  color: #fff;
+  border-color: rgba(37,99,235,0.12);
+}
+
+.ui-btn.ghost {
+  background: transparent;
+  color: #0f172a;
+  border: 1px solid #e6eaf2;
+}
+
+/* Toasts */
+.ui-toast-container {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 8000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.ui-toast {
+  background: #0f172a;
+  color: #fff;
+  padding: 10px 14px;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(2,6,23,0.16);
+  font-weight: 700;
+  font-size: 0.95rem;
+  opacity: 0.98;
+}
+
+.ui-toast.success { background: linear-gradient(180deg,#10b981 0%, #059669 100%); }
+.ui-toast.error { background: linear-gradient(180deg,#ef4444 0%, #dc2626 100%); }
+.ui-toast.info { background: linear-gradient(180deg,#2563eb 0%, #1d4ed8 100%); }
+
+/* small responsive tweaks */
+@media (max-width: 520px) {
+  .ui-modal { padding: 14px; min-width: 280px; }
+  .ui-loader-card { min-width: 220px; padding: 14px; }
+  .ui-modal-title { font-size: 1rem; }
+}
