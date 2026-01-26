@@ -1,5 +1,5 @@
-// viewApplicationJS.html - View Application Modal JavaScript (updated for scroll behavior
-// and "Edit" behavior: the view modal will close when Edit is clicked)
+// viewApplicationJS.html - View Application Modal JavaScript (updated for scroll + edit changes)
+// Replaced google.script.run calls with window.apiService.request() to avoid "google is not defined" in non-GAS contexts.
 
 console.log('viewApplicationJS loaded (scroll + edit changes)');
 
@@ -12,7 +12,7 @@ function setStatusBadge(statusRaw, stageRaw) {
   const status = (statusRaw || '').toString().trim().toUpperCase();
   const stage = stageRaw || '';
   let text = status || stage || 'NEW';
-  let bg = '#eef2ff'; // default light
+  let bg = '#eef6ff'; // default light
   let color = '#1f2937';
 
   switch (status) {
@@ -62,25 +62,33 @@ function shadeColor(hexColor, percent) {
 }
 
 // Main function to fetch and show application details
-function viewApplication(appNumber) {
+// Replaced google.script.run with window.apiService.getApplicationDetails to avoid google dependency.
+async function viewApplication(appNumber) {
   if (!appNumber) {
     console.error('No application number provided');
     return;
   }
 
-  if (typeof showLoading === 'function') showLoading();
+  if (typeof showLoading === 'function') showLoading('Loading application details...');
 
-  google.script.run
-    .withSuccessHandler(function(appData) {
-      if (typeof hideLoading === 'function') hideLoading();
-      initViewApplicationModal(appData);
-    })
-    .withFailureHandler(function(error) {
-      if (typeof hideLoading === 'function') hideLoading();
-      console.error('Error fetching application:', error);
-      alert('Failed to load application details.');
-    })
-    .getApplicationDetails(appNumber); // uses unrestricted details for viewing
+  try {
+    const userName = localStorage.getItem('loggedInName') || '';
+    const response = await window.apiService.getApplicationDetails(appNumber, userName, { showLoading: false });
+
+    if (typeof hideLoading === 'function') hideLoading();
+
+    if (response && response.success && response.data) {
+      // store and initialize UI
+      initViewApplicationModal(response.data);
+    } else {
+      console.error('Failed to fetch application details', response);
+      alert('Failed to load application details: ' + (response?.message || 'Unknown error'));
+    }
+  } catch (err) {
+    if (typeof hideLoading === 'function') hideLoading();
+    console.error('Error fetching application:', err);
+    alert('Failed to load application details.');
+  }
 }
 
 function initViewApplicationModal(appData) {
@@ -246,8 +254,8 @@ function showRelevantCommentEditors(userRole, stage) {
   });
 }
 
-// updated saveStageComment to include role and current stage so server can save to correct column
-function saveStageComment(isRevert, explicitAction) {
+// updated saveStageComment to use ApiService instead of google.script.run
+async function saveStageComment(isRevert, explicitAction) {
   if (!currentAppData || !currentAppData.appNumber) {
     alert('Application data not available.');
     return;
@@ -257,68 +265,76 @@ function saveStageComment(isRevert, explicitAction) {
   const userName = localStorage.getItem('loggedInName') || '';
   const userRole = localStorage.getItem('userRole') || '';
 
-  if (typeof showLoading === 'function') showLoading();
+  if (typeof showLoading === 'function') showLoading('Saving...');
 
-  if (isRevert || explicitAction === 'REVERT') {
-    const targetStage = prompt('Enter stage to revert to (New, Assessment, Compliance, Ist Review, 2nd Review):');
-    if (!targetStage) {
-      if (typeof hideLoading === 'function') hideLoading();
-      return;
-    }
-    google.script.run
-      .withSuccessHandler(function(response) {
+  try {
+    if (isRevert || explicitAction === 'REVERT') {
+      const targetStage = prompt('Enter stage to revert to (New, Assessment, Compliance, Ist Review, 2nd Review):');
+      if (!targetStage) {
         if (typeof hideLoading === 'function') hideLoading();
-        if (response && response.success) {
-          alert(response.message || 'Application reverted successfully');
-          closeViewApplicationModal();
-          if (typeof refreshApplications === 'function') refreshApplications();
-        } else {
-          alert('Error: ' + (response && response.message ? response.message : 'Unknown error'));
-        }
-      })
-      .withFailureHandler(function(err) {
-        if (typeof hideLoading === 'function') hideLoading();
-        alert('Error: ' + (err && err.message ? err.message : err));
-      })
-      .revertApplicationStage(appNumber, targetStage, userName);
-    return;
-  }
+        return;
+      }
 
-  // Determine action: explicitAction takes precedence, else default to SUBMIT
-  const action = explicitAction === 'APPROVE' ? 'APPROVE' : 'SUBMIT';
+      // Call backend API for revert stage. Using snake_case action name commonly used in ApiService.
+      const payload = {
+        appNumber: appNumber,
+        targetStage: targetStage,
+        userName: userName,
+        comment: comment
+      };
 
-  // Gather comments from the textareas (only visible editors will be filled by users)
-  const commentsData = {
-    creditOfficerComment: document.getElementById('view-details-creditOfficerComment-textarea')?.value || '',
-    amlroComments: document.getElementById('view-details-amlroComments-textarea')?.value || '',
-    headOfCredit: document.getElementById('view-details-headOfCredit-textarea')?.value || '',
-    branchManager: document.getElementById('view-details-branchManager-textarea')?.value || '',
-    approver1Comments: document.getElementById('view-details-approver1Comments-textarea')?.value || '',
-    role: userRole,
-    stage: currentAppData.stage || ''
-  };
-
-  google.script.run
-    .withSuccessHandler(function(response) {
+      const resp = await window.apiService.request('revert_application_stage', payload, { showLoading: false });
       if (typeof hideLoading === 'function') hideLoading();
-      if (response && response.success) {
-        alert(response.message || 'Action completed successfully');
+
+      if (resp && resp.success) {
+        alert(resp.message || 'Application reverted successfully');
         closeViewApplicationModal();
         if (typeof refreshApplications === 'function') refreshApplications();
       } else {
-        alert('Error: ' + (response && response.message ? response.message : 'Unknown error'));
+        alert('Error: ' + (resp?.message || 'Unknown error'));
       }
-    })
-    .withFailureHandler(function(err) {
-      if (typeof hideLoading === 'function') hideLoading();
-      alert('Error: ' + (err && err.message ? err.message : err));
-    })
-    .submitApplicationComment({
+      return;
+    }
+
+    // Determine action: explicitAction takes precedence, else default to SUBMIT
+    const action = explicitAction === 'APPROVE' ? 'APPROVE' : 'SUBMIT';
+
+    // Gather comments from the textareas (only visible editors will be filled by users)
+    const commentsData = {
+      creditOfficerComment: document.getElementById('view-details-creditOfficerComment-textarea')?.value || '',
+      amlroComments: document.getElementById('view-details-amlroComments-textarea')?.value || '',
+      headOfCredit: document.getElementById('view-details-headOfCredit-textarea')?.value || '',
+      branchManager: document.getElementById('view-details-branchManager-textarea')?.value || '',
+      approver1Comments: document.getElementById('view-details-approver1Comments-textarea')?.value || '',
+      role: userRole,
+      stage: currentAppData.stage || ''
+    };
+
+    const payload = {
       appNumber: appNumber,
       comment: comment,
       action: action,
-      comments: commentsData
-    }, userName);
+      comments: commentsData,
+      userName: userName
+    };
+
+    // Call backend API to submit comments / perform action
+    const resp = await window.apiService.request('submit_application_comment', payload, { showLoading: false });
+
+    if (typeof hideLoading === 'function') hideLoading();
+
+    if (resp && resp.success) {
+      alert(resp.message || 'Action completed successfully');
+      closeViewApplicationModal();
+      if (typeof refreshApplications === 'function') refreshApplications();
+    } else {
+      alert('Error: ' + (resp?.message || 'Unknown error'));
+    }
+  } catch (err) {
+    if (typeof hideLoading === 'function') hideLoading();
+    console.error('Error saving stage comment:', err);
+    alert('Error: ' + (err?.message || err));
+  }
 }
 
 /* -------------------------
