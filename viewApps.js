@@ -1,5 +1,5 @@
-// viewApplicationJS.html - View Application Modal JavaScript (updated for scroll + edit changes)
-// Replaced google.script.run calls with window.apiService.request() to avoid "google is not defined" in non-GAS contexts.
+// viewApplicationJS - updated to remove google.script.run and to use apiService + UI modals
+// Also integrates global loader and promise-based dialogs
 
 console.log('viewApplicationJS loaded (scroll + edit changes)');
 
@@ -61,8 +61,7 @@ function shadeColor(hexColor, percent) {
   }
 }
 
-// Main function to fetch and show application details
-// Replaced google.script.run with window.apiService.getApplicationDetails to avoid google dependency.
+// Main function to fetch and show application details using ApiService
 async function viewApplication(appNumber) {
   if (!appNumber) {
     console.error('No application number provided');
@@ -82,28 +81,24 @@ async function viewApplication(appNumber) {
       initViewApplicationModal(response.data);
     } else {
       console.error('Failed to fetch application details', response);
-      alert('Failed to load application details: ' + (response?.message || 'Unknown error'));
+      if (typeof window.showToast === 'function') window.showToast('Failed to load application details: ' + (response?.message || 'Unknown error'), 'error');
+      else alert('Failed to load application details: ' + (response?.message || 'Unknown error'));
     }
   } catch (err) {
     if (typeof hideLoading === 'function') hideLoading();
     console.error('Error fetching application:', err);
-    alert('Failed to load application details.');
+    if (typeof window.showToast === 'function') window.showToast('Failed to load application details.', 'error');
+    else alert('Failed to load application details.');
   }
 }
 
 function initViewApplicationModal(appData) {
   // Make init tolerant: allow being called with no argument.
-  // If appData is not provided, try to use previously cached currentAppData.
-  // If neither is available, return quietly (don't log an error) — the modal will be initialized later.
   if (!appData) {
-    if (!currentAppData) {
-      // No data to initialize right now — return silently.
-      return;
-    }
+    if (!currentAppData) return;
     appData = currentAppData;
   }
 
-  // store for later use
   currentAppData = appData || {};
 
   const appNumber = appData.appNumber || 'N/A';
@@ -189,7 +184,6 @@ function closeViewApplicationModal() {
   if (modal) {
     modal.style.display = 'none';
   }
-  // Ensure any body overflow reset (in case other code changed it)
   try { document.body.style.overflow = ''; } catch (e) {}
 }
 
@@ -197,7 +191,8 @@ function openEditSection(tabName) {
   // Close the view modal, then open the newApplication modal in edit mode
   try {
     if (!currentAppData || !currentAppData.appNumber) {
-      alert('Application not loaded.');
+      if (typeof window.showToast === 'function') window.showToast('Application not loaded.', 'error');
+      else alert('Application not loaded.');
       return;
     }
 
@@ -257,7 +252,8 @@ function showRelevantCommentEditors(userRole, stage) {
 // updated saveStageComment to use ApiService instead of google.script.run
 async function saveStageComment(isRevert, explicitAction) {
   if (!currentAppData || !currentAppData.appNumber) {
-    alert('Application data not available.');
+    if (typeof window.showToast === 'function') window.showToast('Application data not available.', 'error');
+    else alert('Application data not available.');
     return;
   }
   const appNumber = currentAppData.appNumber;
@@ -275,7 +271,6 @@ async function saveStageComment(isRevert, explicitAction) {
         return;
       }
 
-      // Call backend API for revert stage. Using snake_case action name commonly used in ApiService.
       const payload = {
         appNumber: appNumber,
         targetStage: targetStage,
@@ -287,11 +282,13 @@ async function saveStageComment(isRevert, explicitAction) {
       if (typeof hideLoading === 'function') hideLoading();
 
       if (resp && resp.success) {
-        alert(resp.message || 'Application reverted successfully');
+        if (typeof window.showSuccessModal === 'function') await window.showSuccessModal(resp.message || 'Application reverted successfully');
+        else alert(resp.message || 'Application reverted successfully');
         closeViewApplicationModal();
         if (typeof refreshApplications === 'function') refreshApplications();
       } else {
-        alert('Error: ' + (resp?.message || 'Unknown error'));
+        if (typeof window.showToast === 'function') window.showToast('Error: ' + (resp?.message || 'Unknown error'), 'error');
+        else alert('Error: ' + (resp?.message || 'Unknown error'));
       }
       return;
     }
@@ -318,22 +315,24 @@ async function saveStageComment(isRevert, explicitAction) {
       userName: userName
     };
 
-    // Call backend API to submit comments / perform action
     const resp = await window.apiService.request('submit_application_comment', payload, { showLoading: false });
 
     if (typeof hideLoading === 'function') hideLoading();
 
     if (resp && resp.success) {
-      alert(resp.message || 'Action completed successfully');
+      if (typeof window.showSuccessModal === 'function') await window.showSuccessModal(resp.message || 'Action completed successfully');
+      else alert(resp.message || 'Action completed successfully');
       closeViewApplicationModal();
       if (typeof refreshApplications === 'function') refreshApplications();
     } else {
-      alert('Error: ' + (resp?.message || 'Unknown error'));
+      if (typeof window.showToast === 'function') window.showToast('Error: ' + (resp?.message || 'Unknown error'), 'error');
+      else alert('Error: ' + (resp?.message || 'Unknown error'));
     }
   } catch (err) {
     if (typeof hideLoading === 'function') hideLoading();
     console.error('Error saving stage comment:', err);
-    alert('Error: ' + (err?.message || err));
+    if (typeof window.showToast === 'function') window.showToast('Error: ' + (err?.message || err), 'error');
+    else alert('Error: ' + (err?.message || err));
   }
 }
 
@@ -404,7 +403,6 @@ function populatePersonalBudgetReview(personalBudget) {
   appendGroup('REPAYMENT', groups.Repayment);
 
   // NET INCOME row
-  // Use app data netIncome if available, otherwise compute from groups
   let netIncomeVal = null;
   if (currentAppData && currentAppData.netIncome !== undefined && currentAppData.netIncome !== null) {
     netIncomeVal = currentAppData.netIncome;
@@ -418,7 +416,6 @@ function populatePersonalBudgetReview(personalBudget) {
   tbody.appendChild(netRow);
 
   // Debt Service Ratio row
-  // Use app data debtServiceRatio if available, otherwise compute from repayments/netIncomeVal
   let dsrVal = null;
   if (currentAppData && currentAppData.debtServiceRatio !== undefined && currentAppData.debtServiceRatio !== null) {
     dsrVal = currentAppData.debtServiceRatio;
@@ -480,7 +477,6 @@ function populateMonthlyTurnoverReview(turnover) {
     return;
   }
 
-  // Helper to append calculation rows (Total / Averages)
   function appendCalcRow(label, crVal, drVal, maxVal, minVal) {
     const r = document.createElement('tr');
     r.className = 'calculation-row';
@@ -492,17 +488,13 @@ function populateMonthlyTurnoverReview(turnover) {
     tbody.appendChild(r);
   }
 
-  // Totals
   appendCalcRow('<strong>Total</strong>', totalCr, totalDr, totalMax, totalMin);
 
-  // Averages: use countedMonths for monthly avg (fall back to 3)
   const monthsForAvg = countedMonths > 0 ? countedMonths : 3;
   appendCalcRow('<strong>Monthly Average</strong>', totalCr / monthsForAvg, totalDr / monthsForAvg, totalMax / monthsForAvg, totalMin / monthsForAvg);
 
-  // Weekly average ~ total / (months * 4)
   appendCalcRow('<strong>Weekly Average</strong>', totalCr / (monthsForAvg * 4), totalDr / (monthsForAvg * 4), totalMax / (monthsForAvg * 4), totalMin / (monthsForAvg * 4));
 
-  // Daily average ~ total / (months * 30)
   appendCalcRow('<strong>Daily Average</strong>', totalCr / (monthsForAvg * 30), totalDr / (monthsForAvg * 30), totalMax / (monthsForAvg * 30), totalMin / (monthsForAvg * 30));
 }
 
@@ -534,14 +526,16 @@ function updateDocumentButtonsForReview(documents) {
 
 function openDocument(docType) {
   if (!currentAppData || !currentAppData.documents) {
-    alert('Document data not available');
+    if (typeof window.showToast === 'function') window.showToast('Document data not available', 'error');
+    else alert('Document data not available');
     return;
   }
   const docUrl = currentAppData.documents[docType];
   if (docUrl && docUrl.trim() !== '') {
     window.open(docUrl, '_blank');
   } else {
-    alert('Document not found or URL not available');
+    if (typeof window.showToast === 'function') window.showToast('Document not found or URL not available', 'error');
+    else alert('Document not found or URL not available');
   }
 }
 
