@@ -1,4 +1,6 @@
 // Main.js — single modal loader implementation (no recursion) + app logic
+// Updated to integrate the shared UI utilities (showGlobalLoader/hideGlobalLoader, showSuccessModal, showConfirmModal, showToast)
+
 // ----------- CACHED ELEMENTS & VARIABLES -----------
 const cachedElements = {};
 let currentAppNumber = "";
@@ -31,7 +33,7 @@ function debounce(func, wait) {
 
 // showLoading/hideLoading:
 // - If the view modal is open, show a loader inside it (centered card)
-// - Otherwise show a centered global loader modal appended to body
+// - Otherwise call the global loader (ui-modals) which is reference counted
 function showLoading(message = 'Processing...') {
   try {
     const viewModal = document.getElementById('viewApplicationModal');
@@ -58,6 +60,12 @@ function showLoading(message = 'Processing...') {
       return;
     }
 
+    // Use global loader if available
+    if (typeof window.showGlobalLoader === 'function') {
+      window.showGlobalLoader(message);
+      return;
+    }
+    // Fallback to UI element with id 'global-loading-modal' if present
     let globalModal = document.getElementById('global-loading-modal');
     if (!globalModal) {
       globalModal = document.createElement('div');
@@ -88,6 +96,10 @@ function hideLoading() {
       local.style.display = 'none';
       return;
     }
+    if (typeof window.hideGlobalLoader === 'function') {
+      window.hideGlobalLoader();
+      return;
+    }
     const globalModal = document.getElementById('global-loading-modal');
     if (globalModal) globalModal.style.display = 'none';
     try { document.body.style.overflow = ''; } catch (e) {}
@@ -95,6 +107,10 @@ function hideLoading() {
     console.warn('hideLoading error', e);
   }
 }
+
+// expose these for other modules that expect them
+window.showLoading = window.showLoading || showLoading;
+window.hideLoading = window.hideLoading || hideLoading;
 
 function escapeHtml(s) {
   if (!s) return '';
@@ -244,7 +260,7 @@ document.addEventListener('DOMContentLoaded', function() {
     loginForm.addEventListener('submit', async function(e) {
       e.preventDefault();
       const name = (document.getElementById('login-name') || {}).value?.trim();
-      if (!name) { alert('Name is required!'); return; }
+      if (!name) { if (typeof window.showToast === 'function') window.showToast('Name is required!', 'error'); else alert('Name is required!'); return; }
       await handleLoginFunction(name);
     });
   }
@@ -257,7 +273,8 @@ document.addEventListener('DOMContentLoaded', function() {
       e.stopPropagation();
       const ok = await loadModalContent('new');
       if (!ok) {
-        alert('Failed to load application form. Please refresh the page.');
+        if (typeof window.showToast === 'function') window.showToast('Failed to load application form. Please refresh the page.', 'error');
+        else alert('Failed to load application form. Please refresh the page.');
         return;
       }
       if (typeof showNewApplicationModal === 'function') {
@@ -289,13 +306,25 @@ function setLoggedInUser(name, role = '') {
   if (name) updateUserNotificationBadge();
 }
 
-function logout() {
-  if (!confirm('Are you sure you want to logout?')) return;
-  localStorage.removeItem('loggedInName');
-  localStorage.removeItem('userRole');
-  localStorage.removeItem('userLevel');
-  clearIntervals();
-  showLoginPage();
+async function logout() {
+  // Use promise-based confirmation modal
+  try {
+    const ok = (typeof window.showConfirmModal === 'function')
+      ? await window.showConfirmModal('Are you sure you want to logout?', { title: 'Confirm Logout', confirmText: 'Logout', cancelText: 'Cancel' })
+      : confirm('Are you sure you want to logout?');
+
+    if (!ok) return;
+
+    localStorage.removeItem('loggedInName');
+    localStorage.removeItem('userRole');
+    localStorage.removeItem('userLevel');
+    clearIntervals();
+    showLoginPage();
+
+    if (typeof window.showToast === 'function') window.showToast('Logged out', 'info');
+  } catch (e) {
+    console.error('logout error', e);
+  }
 }
 
 function restrictIfNotLoggedIn() {
@@ -346,12 +375,14 @@ async function handleLoginFunction(name) {
       initializeAppCount();
       initializeAndRefreshTables();
     } else {
-      alert(response.message || 'Authentication failed');
+      if (typeof window.showToast === 'function') window.showToast(response.message || 'Authentication failed', 'error');
+      else alert(response.message || 'Authentication failed');
     }
   } catch (err) {
     hideLoading();
     console.error('Login error', err);
-    alert('Login error: ' + (err && err.message ? err.message : err));
+    if (typeof window.showToast === 'function') window.showToast('Login error: ' + (err && err.message ? err.message : err), 'error');
+    else alert('Login error: ' + (err && err.message ? err.message : err));
   }
 }
 
@@ -470,7 +501,8 @@ window.loadModalContentIfNeeded = loadModalContentIfNeeded;
 async function openViewApplicationModal(appData) {
   const ok = await loadModalContent('view');
   if (!ok) {
-    alert('Failed to load view modal. Please refresh the page.');
+    if (typeof window.showToast === 'function') window.showToast('Failed to load view modal. Please refresh the page.', 'error');
+    else alert('Failed to load view modal. Please refresh the page.');
     return;
   }
 
@@ -582,7 +614,7 @@ function populateTable(tableId, applications) {
   - This prevents both modals appearing at once.
 */
 async function handleAppNumberClick(appNumber, anchorEl = null) {
-  if (!appNumber) { alert('Invalid application number'); return; }
+  if (!appNumber) { if (typeof window.showToast === 'function') window.showToast('Invalid application number', 'error'); else alert('Invalid application number'); return; }
   const userName = localStorage.getItem('loggedInName') || '';
 
   // Add inline spinner next to the clicked anchor (or find one)
@@ -617,7 +649,7 @@ async function handleAppNumberClick(appNumber, anchorEl = null) {
       if (appData.status === 'NEW' && (appData.completionStatus === 'DRAFT' || appData.completionStatus === 'Draft' || appData.completionStatus === 'draft')) {
         // Load new modal content if needed, then show newApplication modal in edit mode
         const ok = await loadModalContent('new');
-        if (!ok) { alert('Failed to load form.'); return; }
+        if (!ok) { if (typeof window.showToast === 'function') window.showToast('Failed to load form.', 'error'); else alert('Failed to load form.'); return; }
         if (typeof showNewApplicationModal === 'function') {
           showNewApplicationModal(appNumber);
         } else {
@@ -631,7 +663,8 @@ async function handleAppNumberClick(appNumber, anchorEl = null) {
       // Otherwise open view modal (load content first, then initialize)
       const okView = await loadModalContent('view');
       if (!okView) {
-        alert('Failed to load view modal. Please refresh the page.');
+        if (typeof window.showToast === 'function') window.showToast('Failed to load view modal. Please refresh the page.', 'error');
+        else alert('Failed to load view modal. Please refresh the page.');
         return;
       }
 
@@ -649,12 +682,14 @@ async function handleAppNumberClick(appNumber, anchorEl = null) {
         await openViewApplicationModal(appData);
       }
     } else {
-      alert('Failed to load application: ' + (response?.message || 'Not found'));
+      if (typeof window.showToast === 'function') window.showToast('Failed to load application: ' + (response?.message || 'Not found'), 'error');
+      else alert('Failed to load application: ' + (response?.message || 'Not found'));
     }
   } catch (err) {
     if (spinner && spinner.parentNode) spinner.parentNode.removeChild(spinner);
     console.error('Error loading application details', err);
-    alert('Error loading application details: ' + (err && err.message ? err.message : err));
+    if (typeof window.showToast === 'function') window.showToast('Error loading application details: ' + (err && err.message ? err.message : err), 'error');
+    else alert('Error loading application details: ' + (err && err.message ? err.message : err));
   }
 }
 
@@ -762,8 +797,14 @@ async function initializeAppCount() {
 }
 
 // ----------- SUCCESS MODAL ----------
-function showSuccessModal(message) { const el = cachedElements['success-message']; if (el) el.textContent = message; const sm = cachedElements['success-modal']; if (sm) sm.style.display='flex'; }
-function closeSuccessModal() { const sm = cachedElements['success-modal']; if (sm) sm.style.display='none'; }
+async function showSuccessModal(message, options = {}) {
+  if (typeof window.showSuccessModal === 'function') {
+    return window.showSuccessModal(message, options);
+  }
+  // fallback to simple alert
+  alert(message);
+}
+function closeSuccessModal() { if (typeof window.hideSuccessModal === 'function') return window.hideSuccessModal(); }
 
 // ----------- EXPORTS ----------
 window.showSection = async function(sectionId) {
@@ -776,8 +817,24 @@ window.showSection = async function(sectionId) {
 window.refreshApplications = refreshApplications;
 window.refreshUsersList = refreshUsersList;
 window.deleteUser = async function(name) {
-  if (!confirm('Delete user: ' + name + '?')) return;
-  try { const res = await window.apiService.deleteUser(name); if (res.success) { showSuccessModal(res.message||'Deleted'); refreshUsersList(); } else alert(res.message||'Delete failed'); } catch(e){ alert('Error deleting user: '+(e && e.message)); }
+  try {
+    const ok = (typeof window.showConfirmModal === 'function')
+      ? await window.showConfirmModal(`Delete user: ${name}?`, { title: 'Confirm Delete', confirmText: 'Delete', cancelText: 'Cancel', danger: true })
+      : confirm('Delete user: ' + name + '?');
+    if (!ok) return;
+    const res = await window.apiService.deleteUser(name);
+    if (res.success) {
+      if (typeof window.showSuccessModal === 'function') await window.showSuccessModal(res.message || 'Deleted');
+      else alert(res.message || 'Deleted');
+      refreshUsersList();
+    } else {
+      if (typeof window.showToast === 'function') window.showToast(res.message || 'Delete failed', 'error');
+      else alert(res.message || 'Delete failed');
+    }
+  } catch(e){
+    if (typeof window.showToast === 'function') window.showToast('Error deleting user: ' + (e && e.message), 'error');
+    else alert('Error deleting user: '+(e && e.message));
+  }
 };
 window.logout = logout;
 window.closeSuccessModal = closeSuccessModal;
