@@ -4,10 +4,45 @@ class ApiService {
     this.BASE_URL = 'https://script.google.com/macros/s/AKfycbxPg6_2_tTutca2EM6ZInFvH18YXKkx56KcqY8DfYgrBBjlKge2iomqt42huj85aA3agQ/exec';
   }
 
+  // Helper to show/hide loader in a safe, tolerant way.
+  _showLoader(message = 'Processing...') {
+    try {
+      if (typeof window.showLoading === 'function') {
+        window.showLoading(message);
+      } else if (typeof window.showGlobalLoader === 'function') {
+        window.showGlobalLoader(message);
+      } else {
+        const loadingEl = document.getElementById('loading');
+        if (loadingEl) {
+          loadingEl.style.display = 'flex';
+          const messageEl = loadingEl.querySelector('p');
+          if (messageEl) messageEl.textContent = message;
+        }
+      }
+    } catch (e) {
+      console.warn('Loader show failed', e);
+    }
+  }
+  _hideLoader() {
+    try {
+      if (typeof window.hideLoading === 'function') {
+        window.hideLoading();
+      } else if (typeof window.hideGlobalLoader === 'function') {
+        window.hideGlobalLoader();
+      } else {
+        const loadingEl = document.getElementById('loading');
+        if (loadingEl) loadingEl.style.display = 'none';
+      }
+    } catch (e) {
+      console.warn('Loader hide failed', e);
+    }
+  }
+
   // Generic JSONP request method
   async request(action, data = {}, options = {}) {
     const showLoading = options.showLoading !== false;
     const timeout = options.timeout || 30000;
+    const loadingMessage = options.loadingMessage || 'Processing...';
     
     console.log(`API Request [${action}]:`, { 
       action, 
@@ -19,17 +54,7 @@ class ApiService {
     try {
       // Show loading indicator only for foreground requests
       if (showLoading) {
-        const loadingEl = document.getElementById('loading');
-        if (loadingEl) {
-          loadingEl.style.display = 'flex';
-          // Update loading message if provided
-          if (options.loadingMessage) {
-            const messageEl = loadingEl.querySelector('p');
-            if (messageEl) {
-              messageEl.textContent = options.loadingMessage;
-            }
-          }
-        }
+        this._showLoader(loadingMessage);
       }
       
       return new Promise((resolve, reject) => {
@@ -64,8 +89,7 @@ class ApiService {
           
           // Hide loading only if it was shown
           if (showLoading) {
-            const loadingEl = document.getElementById('loading');
-            if (loadingEl) loadingEl.style.display = 'none';
+            this._hideLoader();
           }
           
           // Clear timeout
@@ -95,8 +119,7 @@ class ApiService {
           
           // Hide loading only if it was shown
           if (showLoading) {
-            const loadingEl = document.getElementById('loading');
-            if (loadingEl) loadingEl.style.display = 'none';
+            this._hideLoader();
           }
           
           // Clear timeout
@@ -119,8 +142,7 @@ class ApiService {
           
           // Hide loading only if it was shown
           if (showLoading) {
-            const loadingEl = document.getElementById('loading');
-            if (loadingEl) loadingEl.style.display = 'none';
+            this._hideLoader();
           }
           
           reject(new Error(`Request timeout after ${timeout}ms for action: ${action}`));
@@ -142,8 +164,7 @@ class ApiService {
     } catch (error) {
       // Hide loading on error only if it was shown
       if (showLoading) {
-        const loadingEl = document.getElementById('loading');
-        if (loadingEl) loadingEl.style.display = 'none';
+        this._hideLoader();
       }
       
       console.error(`API Request Catch Error [${action}]:`, error);
