@@ -87,7 +87,8 @@ async function showNewApplicationModal(existingAppNumber = null) {
   const modal = document.getElementById('newApplicationModal');
   if (!modal) {
     console.error('Modal element not found!');
-    alert('Error: Application form not loaded properly. Please refresh the page.');
+    if (typeof window.showToast === 'function') window.showToast('Error: Application form not loaded properly. Please refresh the page.', 'error');
+    else alert('Error: Application form not loaded properly. Please refresh the page.');
     return;
   }
 
@@ -95,7 +96,8 @@ async function showNewApplicationModal(existingAppNumber = null) {
   const modalContent = document.getElementById('newApplicationModalContent');
   if (!modalContent) {
     console.error('#newApplicationModalContent not found');
-    alert('Internal error: modal content container missing');
+    if (typeof window.showToast === 'function') window.showToast('Internal error: modal content container missing', 'error');
+    else alert('Internal error: modal content container missing');
     return;
   }
 
@@ -107,12 +109,14 @@ async function showNewApplicationModal(existingAppNumber = null) {
       const loaded = await loadModalContent('new'); // uses loader in Main.js
       setAddAppButtonLoading(false);
       if (!loaded) {
-        alert('Failed to load application form.');
+        if (typeof window.showToast === 'function') window.showToast('Failed to load application form.', 'error');
+        else alert('Failed to load application form.');
         return;
       }
     } catch (err) {
       setAddAppButtonLoading(false);
-      alert('Error loading form: ' + (err && err.message ? err.message : err));
+      if (typeof window.showToast === 'function') window.showToast('Error loading form: ' + (err && err.message ? err.message : err), 'error');
+      else alert('Error loading form: ' + (err && err.message ? err.message : err));
       return;
     }
   }
@@ -148,7 +152,8 @@ async function showNewApplicationModal(existingAppNumber = null) {
     } catch (error) {
       setAddAppButtonLoading(false);
       console.error('Error in showNewApplicationModal:', error);
-      alert('Error starting new application: ' + (error?.message || error));
+      if (typeof window.showToast === 'function') window.showToast('Error starting new application: ' + (error?.message || error), 'error');
+      else alert('Error starting new application: ' + (error?.message || error));
     }
   }
 }
@@ -620,40 +625,49 @@ function buildModalFormData() {
 function saveDraftFromModal() {
   const loggedInUser = localStorage.getItem('loggedInName') || '';
   if (!loggedInUser) {
-    alert('Please login first!');
+    if (typeof window.showToast === 'function') window.showToast('Please login first!', 'error');
+    else alert('Please login first!');
     return;
   }
 
   const appNumber = window.currentAppNumber || document.getElementById('app-number')?.textContent || '';
   if (!appNumber) {
-    alert('Application number not found.');
+    if (typeof window.showToast === 'function') window.showToast('Application number not found.', 'error');
+    else alert('Application number not found.');
     return;
   }
 
   const name = document.getElementById('name')?.value;
   if (!name) {
-    alert('Please at least enter the applicant name for the draft.');
+    if (typeof window.showToast === 'function') window.showToast('Please at least enter the applicant name for the draft.', 'error');
+    else alert('Please at least enter the applicant name for the draft.');
     return;
   }
 
   const formData = buildModalFormData();
 
-  if (typeof showLoading === 'function') showLoading('Saving draft...');
+  showLoading && showLoading('Saving draft...');
   window.apiService.saveApplication(appNumber, formData, loggedInUser, true, { showLoading: false })
     .then(function(res) {
-      if (typeof hideLoading === 'function') hideLoading();
+      hideLoading && hideLoading();
       if (res && res.success) {
-        alert(res.message || 'Draft saved!');
+        if (typeof window.showSuccessModal === 'function') {
+          window.showSuccessModal(res.message || 'Draft saved!');
+        } else {
+          alert(res.message || 'Draft saved!');
+        }
         closeNewApplicationModal();
         if (typeof refreshApplications === 'function') refreshApplications();
         if (typeof updateBadgeCounts === 'function') updateBadgeCounts();
       } else {
-        alert('Failed to save draft: ' + (res?.message || 'unknown error'));
+        if (typeof window.showToast === 'function') window.showToast('Failed to save draft: ' + (res?.message || 'unknown error'), 'error');
+        else alert('Failed to save draft: ' + (res?.message || 'unknown error'));
       }
     })
     .catch(function(err) {
-      if (typeof hideLoading === 'function') hideLoading();
-      alert('Error saving draft: ' + (err?.message || err));
+      hideLoading && hideLoading();
+      if (typeof window.showToast === 'function') window.showToast('Error saving draft: ' + (err?.message || err), 'error');
+      else alert('Error saving draft: ' + (err?.message || err));
     });
 }
 
@@ -661,13 +675,15 @@ function saveDraftFromModal() {
 function submitNewApplication() {
   const loggedInUser = localStorage.getItem('loggedInName');
   if (!loggedInUser) {
-    alert('Please login first!');
+    if (typeof window.showToast === 'function') window.showToast('Please login first!', 'error');
+    else alert('Please login first!');
     return;
   }
 
   const appNumber = window.currentAppNumber || document.getElementById('app-number')?.textContent || '';
   if (!appNumber) {
-    alert('Application number not found. Please start a new application from the main dashboard.');
+    if (typeof window.showToast === 'function') window.showToast('Application number not found. Please start a new application from the main dashboard.', 'error');
+    else alert('Application number not found. Please start a new application from the main dashboard.');
     return;
   }
 
@@ -678,46 +694,58 @@ function submitNewApplication() {
   const interestRate = document.getElementById('interestRate')?.value;
 
   if (!name || !amount || !purpose || !duration || !interestRate) {
-    alert('Please fill in all required fields: Name, Amount, Purpose, Duration, and Interest Rate');
+    if (typeof window.showToast === 'function') window.showToast('Please fill in all required fields: Name, Amount, Purpose, Duration, and Interest Rate', 'error');
+    else alert('Please fill in all required fields: Name, Amount, Purpose, Duration, and Interest Rate');
     return;
   }
 
   const characterComment = document.getElementById('characterComment')?.value;
   const creditOfficerComment = document.getElementById('creditOfficerComment')?.value;
 
-  if (!characterComment || characterComment.trim() === '') {
-    if (!confirm('Character comment is empty. Submit anyway?')) return;
-  }
+  (async () => {
+    if (!characterComment || characterComment.trim() === '') {
+      const ok = (typeof window.showConfirmModal === 'function')
+        ? await window.showConfirmModal('Character comment is empty. Submit anyway?', { title: 'Confirm', confirmText: 'Submit', cancelText: 'Cancel' })
+        : confirm('Character comment is empty. Submit anyway?');
+      if (!ok) return;
+    }
 
-  if (!creditOfficerComment || creditOfficerComment.trim() === '') {
-    if (!confirm('Credit Officer recommendation is empty. Submit anyway?')) return;
-  }
+    if (!creditOfficerComment || creditOfficerComment.trim() === '') {
+      const ok2 = (typeof window.showConfirmModal === 'function')
+        ? await window.showConfirmModal('Credit Officer recommendation is empty. Submit anyway?', { title: 'Confirm', confirmText: 'Submit', cancelText: 'Cancel' })
+        : confirm('Credit Officer recommendation is empty. Submit anyway?');
+      if (!ok2) return;
+    }
 
-  const formData = buildModalFormData();
-  formData.appNumber = appNumber;
+    const formData = buildModalFormData();
+    formData.appNumber = appNumber;
 
-  if (typeof showLoading === 'function') showLoading('Submitting application...');
+    showLoading && showLoading('Submitting application...');
 
-  window.apiService.saveApplication(appNumber, formData, loggedInUser, false, { showLoading: false })
-    .then(function(response) {
-      if (typeof hideLoading === 'function') hideLoading();
-      if (response && response.success) {
-        if (typeof showSuccessModal === 'function') {
-          showSuccessModal(response.message || 'Application submitted successfully!');
+    window.apiService.saveApplication(appNumber, formData, loggedInUser, false, { showLoading: false })
+      .then(function(response) {
+        hideLoading && hideLoading();
+        if (response && response.success) {
+          if (typeof window.showSuccessModal === 'function') {
+            window.showSuccessModal(response.message || 'Application submitted successfully!');
+          } else {
+            alert(response.message || 'Application submitted successfully!');
+          }
+          closeNewApplicationModal();
+          if (typeof refreshApplications === 'function') refreshApplications();
+          if (typeof updateBadgeCounts === 'function') updateBadgeCounts();
         } else {
-          alert(response.message || 'Application submitted successfully!');
+          if (typeof window.showToast === 'function') window.showToast('Error submitting application: ' + (response?.message || 'unknown error'), 'error');
+          else alert('Error submitting application: ' + (response?.message || 'unknown error'));
         }
-        closeNewApplicationModal();
-        if (typeof refreshApplications === 'function') refreshApplications();
-        if (typeof updateBadgeCounts === 'function') updateBadgeCounts();
-      } else {
-        alert('Error submitting application: ' + (response?.message || 'unknown error'));
-      }
-    })
-    .catch(function(error) {
-      if (typeof hideLoading === 'function') hideLoading();
-      alert('Error submitting application: ' + (error?.message || error));
-    });
+      })
+      .catch(function(error) {
+        hideLoading && hideLoading();
+        if (typeof window.showToast === 'function') window.showToast('Error submitting application: ' + (error?.message || error), 'error');
+        else alert('Error submitting application: ' + (error?.message || error));
+      });
+
+  })();
 }
 
 // ---- Populate form with existing data ----
@@ -742,12 +770,14 @@ function loadExistingApplication(appNumber) {
         calculateTotals();
         calculateBudget();
       } else {
-        alert('Failed to load application: ' + (response?.message || 'Application not found'));
+        if (typeof window.showToast === 'function') window.showToast('Failed to load application: ' + (response?.message || 'Application not found'), 'error');
+        else alert('Failed to load application: ' + (response?.message || 'Application not found'));
       }
     })
     .catch(function(error) {
       if (typeof hideLoading === 'function') hideLoading();
-      alert('Error loading application: ' + (error?.message || error));
+      if (typeof window.showToast === 'function') window.showToast('Error loading application: ' + (error?.message || error), 'error');
+      else alert('Error loading application: ' + (error?.message || error));
     });
 }
 
