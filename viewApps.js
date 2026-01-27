@@ -1,7 +1,7 @@
-// viewApplicationJS.js - View Application Modal JavaScript (updated to use apiService instead of google.script.run)
-// Replaces google.script.run calls with window.apiService requests and adds revert confirmation UI.
+// viewApplicationJS.html - View Application Modal JavaScript (updated for scroll behavior
+// and "Edit" behavior: the view modal will close when Edit is clicked)
 
-console.log('viewApplicationJS loaded (updated for apiService)');
+console.log('viewApplicationJS loaded (scroll + edit changes)');
 
 let currentAppData = null;
 
@@ -61,38 +61,26 @@ function shadeColor(hexColor, percent) {
   }
 }
 
-// Main function to fetch and show application details (uses apiService)
-async function viewApplication(appNumber) {
+// Main function to fetch and show application details
+function viewApplication(appNumber) {
   if (!appNumber) {
     console.error('No application number provided');
     return;
   }
 
-  try {
-    if (typeof showLoading === 'function') showLoading('Loading application...');
-    const userName = localStorage.getItem('loggedInName') || '';
-    const response = await window.apiService.getApplicationDetails(appNumber, userName, { showLoading: false });
-    if (typeof hideLoading === 'function') hideLoading();
+  if (typeof showLoading === 'function') showLoading();
 
-    if (response && response.success && response.data) {
-      // store and initialize modal
-      currentAppData = response.data;
-      initViewApplicationModal(response.data);
-      // show modal if not already visible
-      const modal = document.getElementById('viewApplicationModal');
-      if (modal) {
-        modal.style.display = 'block';
-        modal.classList.add('active');
-      }
-    } else {
-      console.error('Failed to fetch application details', response);
-      alert('Failed to load application details: ' + (response?.message || 'Unknown error'));
-    }
-  } catch (err) {
-    if (typeof hideLoading === 'function') hideLoading();
-    console.error('Error fetching application:', err);
-    alert('Failed to load application details.');
-  }
+  google.script.run
+    .withSuccessHandler(function(appData) {
+      if (typeof hideLoading === 'function') hideLoading();
+      initViewApplicationModal(appData);
+    })
+    .withFailureHandler(function(error) {
+      if (typeof hideLoading === 'function') hideLoading();
+      console.error('Error fetching application:', error);
+      alert('Failed to load application details.');
+    })
+    .getApplicationDetails(appNumber); // uses unrestricted details for viewing
 }
 
 function initViewApplicationModal(appData) {
@@ -197,22 +185,25 @@ function closeViewApplicationModal() {
   try { document.body.style.overflow = ''; } catch (e) {}
 }
 
-// When editing from view modal, close view modal then open edit modal
 function openEditSection(tabName) {
+  // Close the view modal, then open the newApplication modal in edit mode
   try {
     if (!currentAppData || !currentAppData.appNumber) {
       alert('Application not loaded.');
       return;
     }
 
+    // Close view modal so the edit modal is the active UI
     closeViewApplicationModal();
 
     // store requested edit tab; newApplicationJS will read this and open the requested tab
     sessionStorage.setItem('editTab', tabName || 'tab1');
 
+    // open the edit modal (load the existing application for edit)
     if (typeof showNewApplicationModal === 'function') {
       showNewApplicationModal(currentAppData.appNumber);
     } else {
+      // fallback: attempt to open using global function available in app
       window.showNewApplicationModal && window.showNewApplicationModal(currentAppData.appNumber);
     }
   } catch (e) {
@@ -255,122 +246,84 @@ function showRelevantCommentEditors(userRole, stage) {
   });
 }
 
-// saveStageComment updated to use apiService
-async function saveStageComment(isRevert, explicitAction) {
+// updated saveStageComment to include role and current stage so server can save to correct column
+function saveStageComment(isRevert, explicitAction) {
   if (!currentAppData || !currentAppData.appNumber) {
     alert('Application data not available.');
     return;
   }
   const appNumber = currentAppData.appNumber;
+  const comment = (document.getElementById('stageComment') || {}).value || '';
   const userName = localStorage.getItem('loggedInName') || '';
   const userRole = localStorage.getItem('userRole') || '';
 
-  // Revert path: show UI to capture comment and optional hard/soft choice
+  if (typeof showLoading === 'function') showLoading();
+
   if (isRevert || explicitAction === 'REVERT') {
-    // If current stage is Ist Review, allow hard revert option
-    const currentStage = (currentAppData.stage || '').toString();
-    let targetStage = null;
-    let mode = '';
-
-    if (currentStage === 'Ist Review') {
-      const hard = confirm('Do you want to perform a HARD revert to New? (OK = Hard to New, Cancel = Soft to Compliance)');
-      if (hard) {
-        targetStage = 'New';
-        mode = 'hard';
-      } else {
-        targetStage = 'Compliance';
-      }
-    } else {
-      // default previous-stage calculation client-side (for UX), but server will also compute if not provided.
-      // compute previous stage mapping
-      const STAGES = ['New', 'Compliance', 'Ist Review', '2nd Review', 'Approval'];
-      const idx = STAGES.indexOf(currentStage);
-      if (idx > 0) targetStage = STAGES[idx - 1];
-      else {
-        alert('Cannot revert: application already in the first stage.');
-        return;
-      }
-    }
-
-    const comment = prompt(`Enter reason for reverting from "${currentStage}" to "${targetStage}". This is required:`);
-    if (!comment || !comment.trim()) {
-      alert('Revert comment is required.');
+    const targetStage = prompt('Enter stage to revert to (New, Assessment, Compliance, Ist Review, 2nd Review):');
+    if (!targetStage) {
+      if (typeof hideLoading === 'function') hideLoading();
       return;
     }
-
-    try {
-      if (typeof showLoading === 'function') showLoading('Reverting application...');
-      const payload = {
-        appNumber: appNumber,
-        targetStage: targetStage,
-        userName: userName,
-        comment: comment,
-        mode: mode
-      };
-      const res = await window.apiService.request('revert_application_stage', payload, { showLoading: false });
-      if (typeof hideLoading === 'function') hideLoading();
-
-      if (res && res.success) {
-        alert(res.message || 'Application reverted successfully.');
-        closeViewApplicationModal();
-        if (typeof refreshApplications === 'function') refreshApplications();
-        if (typeof updateBadgeCounts === 'function') updateBadgeCounts();
-      } else {
-        console.error('Revert failed', res);
-        alert('Revert failed: ' + (res?.message || 'Unknown error'));
-      }
-    } catch (err) {
-      if (typeof hideLoading === 'function') hideLoading();
-      console.error('Error reverting application:', err);
-      alert('Error reverting application: ' + (err?.message || err));
-    }
+    google.script.run
+      .withSuccessHandler(function(response) {
+        if (typeof hideLoading === 'function') hideLoading();
+        if (response && response.success) {
+          alert(response.message || 'Application reverted successfully');
+          closeViewApplicationModal();
+          if (typeof refreshApplications === 'function') refreshApplications();
+        } else {
+          alert('Error: ' + (response && response.message ? response.message : 'Unknown error'));
+        }
+      })
+      .withFailureHandler(function(err) {
+        if (typeof hideLoading === 'function') hideLoading();
+        alert('Error: ' + (err && err.message ? err.message : err));
+      })
+      .revertApplicationStage(appNumber, targetStage, userName);
     return;
   }
 
-  // Non-revert path: submit or approve
+  // Determine action: explicitAction takes precedence, else default to SUBMIT
   const action = explicitAction === 'APPROVE' ? 'APPROVE' : 'SUBMIT';
-  // Gather comments from visible editors
+
+  // Gather comments from the textareas (only visible editors will be filled by users)
   const commentsData = {
     creditOfficerComment: document.getElementById('view-details-creditOfficerComment-textarea')?.value || '',
     amlroComments: document.getElementById('view-details-amlroComments-textarea')?.value || '',
     headOfCredit: document.getElementById('view-details-headOfCredit-textarea')?.value || '',
     branchManager: document.getElementById('view-details-branchManager-textarea')?.value || '',
     approver1Comments: document.getElementById('view-details-approver1Comments-textarea')?.value || '',
-    approver2Comments: ''
+    role: userRole,
+    stage: currentAppData.stage || ''
   };
 
-  const genericCommentEl = document.getElementById('stageComment');
-  const genericComment = genericCommentEl ? genericCommentEl.value : '';
-
-  try {
-    if (typeof showLoading === 'function') showLoading('Saving comments...');
-    const request = {
+  google.script.run
+    .withSuccessHandler(function(response) {
+      if (typeof hideLoading === 'function') hideLoading();
+      if (response && response.success) {
+        alert(response.message || 'Action completed successfully');
+        closeViewApplicationModal();
+        if (typeof refreshApplications === 'function') refreshApplications();
+      } else {
+        alert('Error: ' + (response && response.message ? response.message : 'Unknown error'));
+      }
+    })
+    .withFailureHandler(function(err) {
+      if (typeof hideLoading === 'function') hideLoading();
+      alert('Error: ' + (err && err.message ? err.message : err));
+    })
+    .submitApplicationComment({
       appNumber: appNumber,
-      comment: genericComment,
+      comment: comment,
       action: action,
-      comments: commentsData,
-      stage: currentAppData.stage || ''
-    };
-    const res = await window.apiService.request('submit_application_comment', request, { showLoading: false });
-    if (typeof hideLoading === 'function') hideLoading();
-
-    if (res && res.success) {
-      alert(res.message || 'Action completed successfully');
-      closeViewApplicationModal();
-      if (typeof refreshApplications === 'function') refreshApplications();
-    } else {
-      console.error('Action failed', res);
-      alert('Error: ' + (res?.message || 'Unknown error'));
-    }
-  } catch (err) {
-    if (typeof hideLoading === 'function') hideLoading();
-    console.error('Error submitting comment/action:', err);
-    alert('Error: ' + (err?.message || err));
-  }
+      comments: commentsData
+    }, userName);
 }
 
 /* -------------------------
-   Existing helper functions (kept mostly unchanged)
+   Existing helper functions
+   (kept mostly unchanged)
    ------------------------- */
 
 function populateLoanHistoryReview(loanHistory) {
@@ -435,6 +388,7 @@ function populatePersonalBudgetReview(personalBudget) {
   appendGroup('REPAYMENT', groups.Repayment);
 
   // NET INCOME row
+  // Use app data netIncome if available, otherwise compute from groups
   let netIncomeVal = null;
   if (currentAppData && currentAppData.netIncome !== undefined && currentAppData.netIncome !== null) {
     netIncomeVal = currentAppData.netIncome;
@@ -448,6 +402,7 @@ function populatePersonalBudgetReview(personalBudget) {
   tbody.appendChild(netRow);
 
   // Debt Service Ratio row
+  // Use app data debtServiceRatio if available, otherwise compute from repayments/netIncomeVal
   let dsrVal = null;
   if (currentAppData && currentAppData.debtServiceRatio !== undefined && currentAppData.debtServiceRatio !== null) {
     dsrVal = currentAppData.debtServiceRatio;
@@ -461,6 +416,7 @@ function populatePersonalBudgetReview(personalBudget) {
   dsrRow.innerHTML = `<td style="text-align:right; font-weight:bold;">Debt Service Ratio:</td><td style="font-weight:bold;">${escapeHtml(dsrVal.toString())}</td>`;
   tbody.appendChild(dsrRow);
 
+  // Also set the quick stat fields
   safeSetText('view-netIncome', formatCurrency(netIncomeVal));
   safeSetText('view-debtServiceRatio', dsrVal);
 }
@@ -487,6 +443,7 @@ function populateMonthlyTurnoverReview(turnover) {
 
     if (monthVal || cr || dr || maxB || minB) hasData = true;
 
+    // Build month row
     const row = document.createElement('tr');
     row.innerHTML = `<td>${escapeHtml(monthVal || ('Month ' + n))}</td>
                      <td>${formatCurrency(cr)}</td>
@@ -507,6 +464,7 @@ function populateMonthlyTurnoverReview(turnover) {
     return;
   }
 
+  // Helper to append calculation rows (Total / Averages)
   function appendCalcRow(label, crVal, drVal, maxVal, minVal) {
     const r = document.createElement('tr');
     r.className = 'calculation-row';
@@ -518,10 +476,17 @@ function populateMonthlyTurnoverReview(turnover) {
     tbody.appendChild(r);
   }
 
+  // Totals
   appendCalcRow('<strong>Total</strong>', totalCr, totalDr, totalMax, totalMin);
+
+  // Averages: use countedMonths for monthly avg (fall back to 3)
   const monthsForAvg = countedMonths > 0 ? countedMonths : 3;
   appendCalcRow('<strong>Monthly Average</strong>', totalCr / monthsForAvg, totalDr / monthsForAvg, totalMax / monthsForAvg, totalMin / monthsForAvg);
+
+  // Weekly average ~ total / (months * 4)
   appendCalcRow('<strong>Weekly Average</strong>', totalCr / (monthsForAvg * 4), totalDr / (monthsForAvg * 4), totalMax / (monthsForAvg * 4), totalMin / (monthsForAvg * 4));
+
+  // Daily average ~ total / (months * 30)
   appendCalcRow('<strong>Daily Average</strong>', totalCr / (monthsForAvg * 30), totalDr / (monthsForAvg * 30), totalMax / (monthsForAvg * 30), totalMin / (monthsForAvg * 30));
 }
 
@@ -531,7 +496,7 @@ function updateDocumentButtonsForReview(documents) {
     const button = document.getElementById(`view-button-${docType}`);
     const statusEl = document.getElementById(`view-doc-${docType}-status`);
     if (!button) return;
-    const docUrl = (currentAppData && currentAppData.documents) ? (currentAppData.documents[docType] || documents[docType]) : documents[docType];
+    const docUrl = documents[docType];
 
     if (docUrl && docUrl.trim() !== '') {
       button.disabled = false;
@@ -608,6 +573,7 @@ function updateModalUIForStage(appData) {
   const isBranchManager = role.includes('branch manager') || role.includes('branch manager/approver');
   const isApprover = role === 'approver' || role.includes('approver');
 
+  // Apply tables per status (NEW, PENDING, PENDING APPROVAL, APPROVED)
   switch (status) {
     case 'NEW':
     case '':
