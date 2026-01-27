@@ -244,6 +244,28 @@ class ApiService {
     });
   }
 
+async submitApplicationComment(request, userName, options = {}) {
+  // Expect request to include: appNumber, comment, action, comments (object), stage (optional)
+  const payload = { ...request, userName };
+  return this.request('submit_application_comment', payload, {
+    ...options,
+    loadingMessage: options.loadingMessage || 'Saving comments...'
+  });
+}
+
+
+async revertApplicationStage(appNumber, targetStage, userName, comment = '', options = {}) {
+  const payload = {
+    appNumber,
+    targetStage,
+    comment,
+    userName
+  };
+  return this.request('revert_application_stage', payload, {
+    ...options,
+    loadingMessage: options.loadingMessage || 'Reverting application...'
+  });
+}
   // ----------- USER MANAGEMENT APIs -----------
   async getAllUsers(options = {}) {
     return this.request('get_all_users', {}, { 
