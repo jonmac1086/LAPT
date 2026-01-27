@@ -1,8 +1,7 @@
-// viewApplicationJS - updated to remove google.script.run and to use apiService + UI modals
-// Also integrates global loader and promise-based dialogs
-// Ensures modal-local loader can appear because showLoading now reliably detects modal visibility.
+// viewApplicationJS.js - View Application Modal JavaScript (updated to use apiService instead of google.script.run)
+// Replaces google.script.run calls with window.apiService requests and adds revert confirmation UI.
 
-console.log('viewApplicationJS loaded (scroll + edit changes)');
+console.log('viewApplicationJS loaded (updated for apiService)');
 
 let currentAppData = null;
 
@@ -13,7 +12,7 @@ function setStatusBadge(statusRaw, stageRaw) {
   const status = (statusRaw || '').toString().trim().toUpperCase();
   const stage = stageRaw || '';
   let text = status || stage || 'NEW';
-  let bg = '#eef6ff'; // default light
+  let bg = '#eef2ff'; // default light
   let color = '#1f2937';
 
   switch (status) {
@@ -62,44 +61,53 @@ function shadeColor(hexColor, percent) {
   }
 }
 
-// Main function to fetch and show application details using ApiService
+// Main function to fetch and show application details (uses apiService)
 async function viewApplication(appNumber) {
   if (!appNumber) {
     console.error('No application number provided');
     return;
   }
 
-  if (typeof showLoading === 'function') showLoading('Loading application details...');
-
   try {
+    if (typeof showLoading === 'function') showLoading('Loading application...');
     const userName = localStorage.getItem('loggedInName') || '';
     const response = await window.apiService.getApplicationDetails(appNumber, userName, { showLoading: false });
-
     if (typeof hideLoading === 'function') hideLoading();
 
     if (response && response.success && response.data) {
-      // store and initialize UI
+      // store and initialize modal
+      currentAppData = response.data;
       initViewApplicationModal(response.data);
+      // show modal if not already visible
+      const modal = document.getElementById('viewApplicationModal');
+      if (modal) {
+        modal.style.display = 'block';
+        modal.classList.add('active');
+      }
     } else {
       console.error('Failed to fetch application details', response);
-      if (typeof window.showToast === 'function') window.showToast('Failed to load application details: ' + (response?.message || 'Unknown error'), 'error');
-      else alert('Failed to load application details: ' + (response?.message || 'Unknown error'));
+      alert('Failed to load application details: ' + (response?.message || 'Unknown error'));
     }
   } catch (err) {
     if (typeof hideLoading === 'function') hideLoading();
     console.error('Error fetching application:', err);
-    if (typeof window.showToast === 'function') window.showToast('Failed to load application details.', 'error');
-    else alert('Failed to load application details.');
+    alert('Failed to load application details.');
   }
 }
 
 function initViewApplicationModal(appData) {
   // Make init tolerant: allow being called with no argument.
+  // If appData is not provided, try to use previously cached currentAppData.
+  // If neither is available, return quietly (don't log an error) — the modal will be initialized later.
   if (!appData) {
-    if (!currentAppData) return;
+    if (!currentAppData) {
+      // No data to initialize right now — return silently.
+      return;
+    }
     appData = currentAppData;
   }
 
+  // store for later use
   currentAppData = appData || {};
 
   const appNumber = appData.appNumber || 'N/A';
@@ -163,9 +171,7 @@ function initViewApplicationModal(appData) {
   safeSetText('signature-branchManager-name', appData.branchManagerName || appData.branchManager || '');
 
   // Documents
-  // cache currentAppData.documents so openDocument can use it
-  currentAppData.documents = appData.documents || {};
-  updateDocumentButtonsForReview(currentAppData.documents);
+  updateDocumentButtonsForReview(appData.documents || {});
 
   // Show/hide comment editors based on current user role & application stage
   const userRole = (localStorage.getItem('userRole') || '').toString();
@@ -178,13 +184,7 @@ function initViewApplicationModal(appData) {
   const modal = document.getElementById('viewApplicationModal');
   if (modal) {
     modal.style.display = 'block';
-    modal.classList.add('active');
-    // Ensure modal content has position:relative so modal-local loader can be appended
-    const container = modal.querySelector('.modal-content') || modal;
-    const computedPosition = window.getComputedStyle(container).position;
-    if (!computedPosition || computedPosition === 'static') {
-      container.style.position = 'relative';
-    }
+    // do NOT set document.body.style.overflow = 'hidden' so the main page can scroll along with the modal
   }
 }
 
@@ -192,27 +192,24 @@ function closeViewApplicationModal() {
   const modal = document.getElementById('viewApplicationModal');
   if (modal) {
     modal.style.display = 'none';
-    modal.classList.remove('active');
   }
+  // Ensure any body overflow reset (in case other code changed it)
   try { document.body.style.overflow = ''; } catch (e) {}
 }
 
-// When "Edit" is clicked from view modal — close view and open new/edit modal
+// When editing from view modal, close view modal then open edit modal
 function openEditSection(tabName) {
   try {
     if (!currentAppData || !currentAppData.appNumber) {
-      if (typeof window.showToast === 'function') window.showToast('Application not loaded.', 'error');
-      else alert('Application not loaded.');
+      alert('Application not loaded.');
       return;
     }
 
-    // Close view modal so the edit modal is the active UI
     closeViewApplicationModal();
 
     // store requested edit tab; newApplicationJS will read this and open the requested tab
     sessionStorage.setItem('editTab', tabName || 'tab1');
 
-    // open the edit modal (load the existing application for edit)
     if (typeof showNewApplicationModal === 'function') {
       showNewApplicationModal(currentAppData.appNumber);
     } else {
@@ -258,96 +255,122 @@ function showRelevantCommentEditors(userRole, stage) {
   });
 }
 
-// updated saveStageComment to use ApiService instead of google.script.run
+// saveStageComment updated to use apiService
 async function saveStageComment(isRevert, explicitAction) {
   if (!currentAppData || !currentAppData.appNumber) {
-    if (typeof window.showToast === 'function') window.showToast('Application data not available.', 'error');
-    else alert('Application data not available.');
+    alert('Application data not available.');
     return;
   }
   const appNumber = currentAppData.appNumber;
-  const comment = (document.getElementById('stageComment') || {}).value || '';
   const userName = localStorage.getItem('loggedInName') || '';
   const userRole = localStorage.getItem('userRole') || '';
 
-  if (typeof showLoading === 'function') showLoading('Saving...');
+  // Revert path: show UI to capture comment and optional hard/soft choice
+  if (isRevert || explicitAction === 'REVERT') {
+    // If current stage is Ist Review, allow hard revert option
+    const currentStage = (currentAppData.stage || '').toString();
+    let targetStage = null;
+    let mode = '';
 
-  try {
-    if (isRevert || explicitAction === 'REVERT') {
-      const targetStage = prompt('Enter stage to revert to (New, Assessment, Compliance, Ist Review, 2nd Review):');
-      if (!targetStage) {
-        if (typeof hideLoading === 'function') hideLoading();
+    if (currentStage === 'Ist Review') {
+      const hard = confirm('Do you want to perform a HARD revert to New? (OK = Hard to New, Cancel = Soft to Compliance)');
+      if (hard) {
+        targetStage = 'New';
+        mode = 'hard';
+      } else {
+        targetStage = 'Compliance';
+      }
+    } else {
+      // default previous-stage calculation client-side (for UX), but server will also compute if not provided.
+      // compute previous stage mapping
+      const STAGES = ['New', 'Compliance', 'Ist Review', '2nd Review', 'Approval'];
+      const idx = STAGES.indexOf(currentStage);
+      if (idx > 0) targetStage = STAGES[idx - 1];
+      else {
+        alert('Cannot revert: application already in the first stage.');
         return;
       }
+    }
 
+    const comment = prompt(`Enter reason for reverting from "${currentStage}" to "${targetStage}". This is required:`);
+    if (!comment || !comment.trim()) {
+      alert('Revert comment is required.');
+      return;
+    }
+
+    try {
+      if (typeof showLoading === 'function') showLoading('Reverting application...');
       const payload = {
         appNumber: appNumber,
         targetStage: targetStage,
         userName: userName,
-        comment: comment
+        comment: comment,
+        mode: mode
       };
-
-      const resp = await window.apiService.request('revert_application_stage', payload, { showLoading: false });
+      const res = await window.apiService.request('revert_application_stage', payload, { showLoading: false });
       if (typeof hideLoading === 'function') hideLoading();
 
-      if (resp && resp.success) {
-        if (typeof window.showSuccessModal === 'function') await window.showSuccessModal(resp.message || 'Application reverted successfully');
-        else alert(resp.message || 'Application reverted successfully');
+      if (res && res.success) {
+        alert(res.message || 'Application reverted successfully.');
         closeViewApplicationModal();
         if (typeof refreshApplications === 'function') refreshApplications();
+        if (typeof updateBadgeCounts === 'function') updateBadgeCounts();
       } else {
-        if (typeof window.showToast === 'function') window.showToast('Error: ' + (resp?.message || 'Unknown error'), 'error');
-        else alert('Error: ' + (resp?.message || 'Unknown error'));
+        console.error('Revert failed', res);
+        alert('Revert failed: ' + (res?.message || 'Unknown error'));
       }
-      return;
+    } catch (err) {
+      if (typeof hideLoading === 'function') hideLoading();
+      console.error('Error reverting application:', err);
+      alert('Error reverting application: ' + (err?.message || err));
     }
+    return;
+  }
 
-    // Determine action: explicitAction takes precedence, else default to SUBMIT
-    const action = explicitAction === 'APPROVE' ? 'APPROVE' : 'SUBMIT';
+  // Non-revert path: submit or approve
+  const action = explicitAction === 'APPROVE' ? 'APPROVE' : 'SUBMIT';
+  // Gather comments from visible editors
+  const commentsData = {
+    creditOfficerComment: document.getElementById('view-details-creditOfficerComment-textarea')?.value || '',
+    amlroComments: document.getElementById('view-details-amlroComments-textarea')?.value || '',
+    headOfCredit: document.getElementById('view-details-headOfCredit-textarea')?.value || '',
+    branchManager: document.getElementById('view-details-branchManager-textarea')?.value || '',
+    approver1Comments: document.getElementById('view-details-approver1Comments-textarea')?.value || '',
+    approver2Comments: ''
+  };
 
-    // Gather comments from the textareas (only visible editors will be filled by users)
-    const commentsData = {
-      creditOfficerComment: document.getElementById('view-details-creditOfficerComment-textarea')?.value || '',
-      amlroComments: document.getElementById('view-details-amlroComments-textarea')?.value || '',
-      headOfCredit: document.getElementById('view-details-headOfCredit-textarea')?.value || '',
-      branchManager: document.getElementById('view-details-branchManager-textarea')?.value || '',
-      approver1Comments: document.getElementById('view-details-approver1Comments-textarea')?.value || '',
-      role: userRole,
-      stage: currentAppData.stage || ''
-    };
+  const genericCommentEl = document.getElementById('stageComment');
+  const genericComment = genericCommentEl ? genericCommentEl.value : '';
 
-    const payload = {
+  try {
+    if (typeof showLoading === 'function') showLoading('Saving comments...');
+    const request = {
       appNumber: appNumber,
-      comment: comment,
+      comment: genericComment,
       action: action,
       comments: commentsData,
-      userName: userName
+      stage: currentAppData.stage || ''
     };
-
-    const resp = await window.apiService.request('submit_application_comment', payload, { showLoading: false });
-
+    const res = await window.apiService.request('submit_application_comment', request, { showLoading: false });
     if (typeof hideLoading === 'function') hideLoading();
 
-    if (resp && resp.success) {
-      if (typeof window.showSuccessModal === 'function') await window.showSuccessModal(resp.message || 'Action completed successfully');
-      else alert(resp.message || 'Action completed successfully');
+    if (res && res.success) {
+      alert(res.message || 'Action completed successfully');
       closeViewApplicationModal();
       if (typeof refreshApplications === 'function') refreshApplications();
     } else {
-      if (typeof window.showToast === 'function') window.showToast('Error: ' + (resp?.message || 'Unknown error'), 'error');
-      else alert('Error: ' + (resp?.message || 'Unknown error'));
+      console.error('Action failed', res);
+      alert('Error: ' + (res?.message || 'Unknown error'));
     }
   } catch (err) {
     if (typeof hideLoading === 'function') hideLoading();
-    console.error('Error saving stage comment:', err);
-    if (typeof window.showToast === 'function') window.showToast('Error: ' + (err?.message || err), 'error');
-    else alert('Error: ' + (err?.message || err));
+    console.error('Error submitting comment/action:', err);
+    alert('Error: ' + (err?.message || err));
   }
 }
 
 /* -------------------------
-   Existing helper functions
-   (kept mostly unchanged)
+   Existing helper functions (kept mostly unchanged)
    ------------------------- */
 
 function populateLoanHistoryReview(loanHistory) {
@@ -438,7 +461,6 @@ function populatePersonalBudgetReview(personalBudget) {
   dsrRow.innerHTML = `<td style="text-align:right; font-weight:bold;">Debt Service Ratio:</td><td style="font-weight:bold;">${escapeHtml(dsrVal.toString())}</td>`;
   tbody.appendChild(dsrRow);
 
-  // Also set the quick stat fields
   safeSetText('view-netIncome', formatCurrency(netIncomeVal));
   safeSetText('view-debtServiceRatio', dsrVal);
 }
@@ -465,7 +487,6 @@ function populateMonthlyTurnoverReview(turnover) {
 
     if (monthVal || cr || dr || maxB || minB) hasData = true;
 
-    // Build month row
     const row = document.createElement('tr');
     row.innerHTML = `<td>${escapeHtml(monthVal || ('Month ' + n))}</td>
                      <td>${formatCurrency(cr)}</td>
@@ -498,12 +519,9 @@ function populateMonthlyTurnoverReview(turnover) {
   }
 
   appendCalcRow('<strong>Total</strong>', totalCr, totalDr, totalMax, totalMin);
-
   const monthsForAvg = countedMonths > 0 ? countedMonths : 3;
   appendCalcRow('<strong>Monthly Average</strong>', totalCr / monthsForAvg, totalDr / monthsForAvg, totalMax / monthsForAvg, totalMin / monthsForAvg);
-
   appendCalcRow('<strong>Weekly Average</strong>', totalCr / (monthsForAvg * 4), totalDr / (monthsForAvg * 4), totalMax / (monthsForAvg * 4), totalMin / (monthsForAvg * 4));
-
   appendCalcRow('<strong>Daily Average</strong>', totalCr / (monthsForAvg * 30), totalDr / (monthsForAvg * 30), totalMax / (monthsForAvg * 30), totalMin / (monthsForAvg * 30));
 }
 
@@ -513,7 +531,7 @@ function updateDocumentButtonsForReview(documents) {
     const button = document.getElementById(`view-button-${docType}`);
     const statusEl = document.getElementById(`view-doc-${docType}-status`);
     if (!button) return;
-    const docUrl = documents[docType];
+    const docUrl = (currentAppData && currentAppData.documents) ? (currentAppData.documents[docType] || documents[docType]) : documents[docType];
 
     if (docUrl && docUrl.trim() !== '') {
       button.disabled = false;
@@ -535,16 +553,14 @@ function updateDocumentButtonsForReview(documents) {
 
 function openDocument(docType) {
   if (!currentAppData || !currentAppData.documents) {
-    if (typeof window.showToast === 'function') window.showToast('Document data not available', 'error');
-    else alert('Document data not available');
+    alert('Document data not available');
     return;
   }
   const docUrl = currentAppData.documents[docType];
   if (docUrl && docUrl.trim() !== '') {
     window.open(docUrl, '_blank');
   } else {
-    if (typeof window.showToast === 'function') window.showToast('Document not found or URL not available', 'error');
-    else alert('Document not found or URL not available');
+    alert('Document not found or URL not available');
   }
 }
 
@@ -592,7 +608,6 @@ function updateModalUIForStage(appData) {
   const isBranchManager = role.includes('branch manager') || role.includes('branch manager/approver');
   const isApprover = role === 'approver' || role.includes('approver');
 
-  // Apply tables per status (NEW, PENDING, PENDING APPROVAL, APPROVED)
   switch (status) {
     case 'NEW':
     case '':
