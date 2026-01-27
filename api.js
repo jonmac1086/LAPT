@@ -4,45 +4,10 @@ class ApiService {
     this.BASE_URL = 'https://script.google.com/macros/s/AKfycbxPg6_2_tTutca2EM6ZInFvH18YXKkx56KcqY8DfYgrBBjlKge2iomqt42huj85aA3agQ/exec';
   }
 
-  // Helper to show/hide loader in a safe, tolerant way.
-  _showLoader(message = 'Processing...') {
-    try {
-      if (typeof window.showLoading === 'function') {
-        window.showLoading(message);
-      } else if (typeof window.showGlobalLoader === 'function') {
-        window.showGlobalLoader(message);
-      } else {
-        const loadingEl = document.getElementById('loading');
-        if (loadingEl) {
-          loadingEl.style.display = 'flex';
-          const messageEl = loadingEl.querySelector('p');
-          if (messageEl) messageEl.textContent = message;
-        }
-      }
-    } catch (e) {
-      console.warn('Loader show failed', e);
-    }
-  }
-  _hideLoader() {
-    try {
-      if (typeof window.hideLoading === 'function') {
-        window.hideLoading();
-      } else if (typeof window.hideGlobalLoader === 'function') {
-        window.hideGlobalLoader();
-      } else {
-        const loadingEl = document.getElementById('loading');
-        if (loadingEl) loadingEl.style.display = 'none';
-      }
-    } catch (e) {
-      console.warn('Loader hide failed', e);
-    }
-  }
-
   // Generic JSONP request method
   async request(action, data = {}, options = {}) {
     const showLoading = options.showLoading !== false;
     const timeout = options.timeout || 30000;
-    const loadingMessage = options.loadingMessage || 'Processing...';
     
     console.log(`API Request [${action}]:`, { 
       action, 
@@ -54,7 +19,17 @@ class ApiService {
     try {
       // Show loading indicator only for foreground requests
       if (showLoading) {
-        this._showLoader(loadingMessage);
+        const loadingEl = document.getElementById('loading');
+        if (loadingEl) {
+          loadingEl.style.display = 'flex';
+          // Update loading message if provided
+          if (options.loadingMessage) {
+            const messageEl = loadingEl.querySelector('p');
+            if (messageEl) {
+              messageEl.textContent = options.loadingMessage;
+            }
+          }
+        }
       }
       
       return new Promise((resolve, reject) => {
@@ -89,7 +64,8 @@ class ApiService {
           
           // Hide loading only if it was shown
           if (showLoading) {
-            this._hideLoader();
+            const loadingEl = document.getElementById('loading');
+            if (loadingEl) loadingEl.style.display = 'none';
           }
           
           // Clear timeout
@@ -119,7 +95,8 @@ class ApiService {
           
           // Hide loading only if it was shown
           if (showLoading) {
-            this._hideLoader();
+            const loadingEl = document.getElementById('loading');
+            if (loadingEl) loadingEl.style.display = 'none';
           }
           
           // Clear timeout
@@ -142,7 +119,8 @@ class ApiService {
           
           // Hide loading only if it was shown
           if (showLoading) {
-            this._hideLoader();
+            const loadingEl = document.getElementById('loading');
+            if (loadingEl) loadingEl.style.display = 'none';
           }
           
           reject(new Error(`Request timeout after ${timeout}ms for action: ${action}`));
@@ -164,7 +142,8 @@ class ApiService {
     } catch (error) {
       // Hide loading on error only if it was shown
       if (showLoading) {
-        this._hideLoader();
+        const loadingEl = document.getElementById('loading');
+        if (loadingEl) loadingEl.style.display = 'none';
       }
       
       console.error(`API Request Catch Error [${action}]:`, error);
@@ -244,28 +223,6 @@ class ApiService {
     });
   }
 
-async submitApplicationComment(request, userName, options = {}) {
-  // Expect request to include: appNumber, comment, action, comments (object), stage (optional)
-  const payload = { ...request, userName };
-  return this.request('submit_application_comment', payload, {
-    ...options,
-    loadingMessage: options.loadingMessage || 'Saving comments...'
-  });
-}
-
-
-async revertApplicationStage(appNumber, targetStage, userName, comment = '', options = {}) {
-  const payload = {
-    appNumber,
-    targetStage,
-    comment,
-    userName
-  };
-  return this.request('revert_application_stage', payload, {
-    ...options,
-    loadingMessage: options.loadingMessage || 'Reverting application...'
-  });
-}
   // ----------- USER MANAGEMENT APIs -----------
   async getAllUsers(options = {}) {
     return this.request('get_all_users', {}, { 
@@ -306,6 +263,39 @@ async revertApplicationStage(appNumber, targetStage, userName, comment = '', opt
     }, { 
       ...options, 
       loadingMessage: 'Saving draft...' 
+    });
+  }
+
+  // ----------- NEW: COMMENTS / STAGE ACTIONS -----------
+  // Submit comments / stage action (wraps 'submit_application_comment')
+  async submitApplicationComment(request, userName, options = {}) {
+    const payload = {
+      ...request,
+      userName
+    };
+    return this.request('submit_application_comment', payload, {
+      ...options,
+      loadingMessage: options.loadingMessage || 'Saving comments...'
+    });
+  }
+
+  // Revert application stage (wraps 'revert_application_stage')
+  // mode: optional string (e.g. 'hard') - placed into payload as mode
+  async revertApplicationStage(appNumber, targetStage = '', userName = '', comment = '', options = {}) {
+    const payload = {
+      appNumber,
+      targetStage: targetStage || null,
+      userName,
+      comment,
+      mode: options.mode || (options.mode === '' ? undefined : undefined)
+    };
+
+    // If options.mode is provided, include it explicitly
+    if (options.mode) payload.mode = options.mode;
+
+    return this.request('revert_application_stage', payload, {
+      ...options,
+      loadingMessage: options.loadingMessage || 'Reverting application...'
     });
   }
 
@@ -393,6 +383,18 @@ window.ApplicationAPI = {
   getApprovedApplications: async (options = {}) => {
     const response = await window.apiService.getApplications('APPROVED', options);
     return response.data || [];
+  },
+
+  // New convenience wrapper to call revert_application_stage
+  revertApplicationStage: async (appNumber, targetStage = '', userName = '', comment = '', options = {}) => {
+    const response = await window.apiService.revertApplicationStage(appNumber, targetStage, userName, comment, options);
+    return response;
+  },
+
+  // New convenience wrapper for submit_application_comment
+  submitApplicationComment: async (request, userName = '', options = {}) => {
+    const response = await window.apiService.submitApplicationComment(request, userName, options);
+    return response;
   }
 };
 
@@ -441,6 +443,11 @@ window.UtilityAPI = {
 
   testConnection: async (options = {}) => {
     return window.apiService.testConnection(options);
+  },
+
+  // Convenience passthrough for revert
+  revertApplicationStage: async (appNumber, targetStage = '', userName = '', comment = '', options = {}) => {
+    return window.apiService.revertApplicationStage(appNumber, targetStage, userName, comment, options);
   }
 };
 
