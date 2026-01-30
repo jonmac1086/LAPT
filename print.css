@@ -1,255 +1,249 @@
 /* print.css
-   Styles for printing only the view modal (loan application).
-   Designed to be loaded into the print popup/window created by print.js
-   - Hides interactive UI (buttons, controls)
-   - Ensures readable typography, correct colors, and sensible page breaks
-   - Keeps tables and documents readable and scaled for paper
+   Print-only styles for the view modal. Entire file scoped to print media
+   so it does not hide UI elements on screen.
 */
 
-/* Basic page */
-@page {
-  size: A4 portrait;
-  margin: 12mm 10mm;
-}
-
-/* Reset body for print window */
-html, body {
-  background: #fff !important;
-  color: #111 !important;
-  font-family: Inter, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
-  -webkit-print-color-adjust: exact !important;
-  -moz-print-color-adjust: exact !important;
-  line-height: 1.4 !important;
-  font-size: 12pt;
-  margin: 0;
-  padding: 0;
-}
-
-/* Constrain modal to page width */
-.modal-content,
-.loan-application-modal,
-.__print_only_wrapper,
-.printable-modal {
-  width: 100% !important;
-  max-width: 100% !important;
-  box-shadow: none !important;
-  border: 0 !important;
-  background: transparent !important;
-  padding: 0 !important;
-  margin: 0 0 8px 0 !important;
-}
-
-/* Header */
-.modal-header,
-.modal-header .header-left,
-.modal-header .header-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 6px;
-  padding: 6px 0;
-  border-bottom: 1px solid #e6e6e6;
-}
-.application-number {
-  display: inline-block;
-  font-weight: 800;
-  color: #0b66c2;
-  background: #eef6ff;
-  padding: 6px 10px;
-  border-radius: 6px;
-  font-size: 14pt;
-}
-.applicant-info .applicant-name {
-  font-size: 13pt;
-  font-weight: 700;
-  color: #111;
-}
-.applicant-info .applicant-subtitle {
-  font-size: 10pt;
-  color: #444;
-}
-
-/* Global hide: interactive elements not for print */
-.close-button,
-.action-btn,
-.header-actions,
-.compact-actions,
-.tab-navigation,
-.tab-button,
-button,
-input[type="button"],
-input[type="submit"],
-input[type="file"],
-select,
-textarea,
-.nav,
-.menu-btn,
-.add-app-btn,
-.logout-btn,
-.btn-icon,
-.notification-badge,
-.no-print {
-  display: none !important;
-}
-
-/* Ensure printable text areas show content */
-.view-textarea,
-.view-value,
-.view-details-value,
-.view-details-section,
-.view-category,
-.review-value,
-.inline-value,
-.document-label,
-.document-status {
-  display: block !important;
-  color: #111 !important;
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-  padding: 0 !important;
-  margin: 0 !important;
-  line-height: 1.4 !important;
-}
-
-/* Tables - make them print-friendly */
-.view-table,
-.review-table,
-.applications-table,
-.print-table {
-  width: 100% !important;
-  border-collapse: collapse !important;
-  font-size: 10.5pt !important;
-  margin: 6px 0 12px 0;
-}
-.view-table th,
-.review-table th,
-.print-table th {
-  background: #f5f7fb !important;
-  font-weight: 700;
-  padding: 6px 8px;
-  text-align: left;
-  border: 1px solid #e6e6e6 !important;
-}
-.view-table td,
-.review-table td,
-.print-table td {
-  padding: 6px 8px;
-  border: 1px solid #eaeaea !important;
-  vertical-align: top;
-}
-
-/* Documents grid — flow vertically on print */
-.documents-container,
-.documents-list-compact,
-.documents-grid {
-  display: block !important;
-  width: 100% !important;
-}
-.document-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  padding: 8px 10px;
-  border: 1px solid #eee;
-  background: #fafafa;
-  margin: 6px 0;
-  border-radius: 6px;
-  page-break-inside: avoid;
-}
-.document-label { font-weight: 700; color: #333; font-size: 11pt; }
-.document-status { font-size: 10pt; color: #555; }
-
-/* Section blocks */
-.section-block,
-.view-details-section,
-.compact-view,
-.review-section {
-  padding: 8px 0;
-  margin: 8px 0;
-  border-bottom: 1px solid #eee;
-}
-
-/* Ensure long text wraps and preserves line breaks */
-.view-value,
-.view-details-value,
-.review-value,
-.inline-value {
-  white-space: pre-wrap !important;
-  word-break: break-word !important;
-}
-
-/* Page break rules */
-.break-after {
-  page-break-after: always;
-}
-.break-before {
-  page-break-before: always;
-}
-.avoid-break {
-  page-break-inside: avoid;
-}
-
-/* Small typography tweaks */
-h4, h5, h6 {
-  color: #111;
-  margin: 6px 0;
-  font-weight: 700;
-}
-h4 { font-size: 12pt; }
-h5 { font-size: 11pt; }
-h6 { font-size: 10pt; }
-
-/* Signature block layout */
-.signatures-section, .signature-block {
-  display: block !important;
-  margin: 12px 0;
-}
-.signature-block { text-align: left; margin-bottom: 18px; }
-.signature-line {
-  height: 1px;
-  background: #999;
-  margin: 6px 0 8px 0;
-  opacity: 0.35;
-}
-.signature-name { font-weight: 700; font-size: 11pt; color: #111; }
-
-/* Images and icons scale */
-img {
-  max-width: 100% !important;
-  height: auto !important;
-  display: block;
-}
-
-/* Tighten margins for printed lists */
-ul, ol {
-  margin: 6px 0 6px 18px;
-}
-
-/* Footnote / small print area at bottom */
-.print-footer {
-  font-size: 9pt;
-  color: #666;
-  margin-top: 12px;
-  border-top: 1px dashed #e6e6e6;
-  padding-top: 8px;
-}
-
-/* Accessibility: ensure high contrast for print */
 @media print {
+  /* Basic page */
+  @page {
+    size: A4 portrait;
+    margin: 12mm 10mm;
+  }
+
+  /* Reset body for print window */
+  html, body {
+    background: #fff !important;
+    color: #111 !important;
+    font-family: Inter, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+    -webkit-print-color-adjust: exact !important;
+    -moz-print-color-adjust: exact !important;
+    line-height: 1.4 !important;
+    font-size: 12pt;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Constrain modal to page width */
+  .modal-content,
+  .loan-application-modal,
+  .__print_only_wrapper,
+  .printable-modal {
+    width: 100% !important;
+    max-width: 100% !important;
+    box-shadow: none !important;
+    border: 0 !important;
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 0 8px 0 !important;
+  }
+
+  /* Header */
+  .modal-header,
+  .modal-header .header-left,
+  .modal-header .header-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+    padding: 6px 0;
+    border-bottom: 1px solid #e6e6e6;
+  }
+  .application-number {
+    display: inline-block;
+    font-weight: 800;
+    color: #0b66c2;
+    background: #eef6ff;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 14pt;
+  }
+  .applicant-info .applicant-name {
+    font-size: 13pt;
+    font-weight: 700;
+    color: #111;
+  }
+  .applicant-info .applicant-subtitle {
+    font-size: 10pt;
+    color: #444;
+  }
+
+  /* Global hide: interactive elements not for print */
+  .close-button,
+  .action-btn,
+  .header-actions,
+  .compact-actions,
+  .tab-navigation,
+  .tab-button,
+  button,
+  input[type="button"],
+  input[type="submit"],
+  input[type="file"],
+  select,
+  textarea,
+  .nav,
+  .menu-btn,
+  .add-app-btn,
+  .logout-btn,
+  .btn-icon,
+  .notification-badge,
+  .no-print {
+    display: none !important;
+  }
+
+  /* Ensure printable text areas show content */
+  .view-textarea,
+  .view-value,
+  .view-details-value,
+  .view-details-section,
+  .view-category,
+  .review-value,
+  .inline-value,
+  .document-label,
+  .document-status {
+    display: block !important;
+    color: #111 !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    line-height: 1.4 !important;
+  }
+
+  /* Tables - make them print-friendly */
+  .view-table,
+  .review-table,
+  .applications-table,
+  .print-table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    font-size: 10.5pt !important;
+    margin: 6px 0 12px 0;
+  }
+  .view-table th,
+  .review-table th,
+  .print-table th {
+    background: #f5f7fb !important;
+    font-weight: 700;
+    padding: 6px 8px;
+    text-align: left;
+    border: 1px solid #e6e6e6 !important;
+  }
+  .view-table td,
+  .review-table td,
+  .print-table td {
+    padding: 6px 8px;
+    border: 1px solid #eaeaea !important;
+    vertical-align: top;
+  }
+
+  /* Documents grid — flow vertically on print */
+  .documents-container,
+  .documents-list-compact,
+  .documents-grid {
+    display: block !important;
+    width: 100% !important;
+  }
+  .document-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 8px 10px;
+    border: 1px solid #eee;
+    background: #fafafa;
+    margin: 6px 0;
+    border-radius: 6px;
+    page-break-inside: avoid;
+  }
+  .document-label { font-weight: 700; color: #333; font-size: 11pt; }
+  .document-status { font-size: 10pt; color: #555; }
+
+  /* Section blocks */
+  .section-block,
+  .view-details-section,
+  .compact-view,
+  .review-section {
+    padding: 8px 0;
+    margin: 8px 0;
+    border-bottom: 1px solid #eee;
+  }
+
+  /* Ensure long text wraps and preserves line breaks */
+  .view-value,
+  .view-details-value,
+  .review-value,
+  .inline-value {
+    white-space: pre-wrap !important;
+    word-break: break-word !important;
+  }
+
+  /* Page break rules */
+  .break-after {
+    page-break-after: always;
+  }
+  .break-before {
+    page-break-before: always;
+  }
+  .avoid-break {
+    page-break-inside: avoid;
+  }
+
+  /* Small typography tweaks */
+  h4, h5, h6 {
+    color: #111;
+    margin: 6px 0;
+    font-weight: 700;
+  }
+  h4 { font-size: 12pt; }
+  h5 { font-size: 11pt; }
+  h6 { font-size: 10pt; }
+
+  /* Signature block layout */
+  .signatures-section, .signature-block {
+    display: block !important;
+    margin: 12px 0;
+  }
+  .signature-block { text-align: left; margin-bottom: 18px; }
+  .signature-line {
+    height: 1px;
+    background: #999;
+    margin: 6px 0 8px 0;
+    opacity: 0.35;
+  }
+  .signature-name { font-weight: 700; font-size: 11pt; color: #111; }
+
+  /* Images and icons scale */
+  img {
+    max-width: 100% !important;
+    height: auto !important;
+    display: block;
+  }
+
+  /* Tighten margins for printed lists */
+  ul, ol {
+    margin: 6px 0 6px 18px;
+  }
+
+  /* Footnote / small print area at bottom */
+  .print-footer {
+    font-size: 9pt;
+    color: #666;
+    margin-top: 12px;
+    border-top: 1px dashed #e6e6e6;
+    padding-top: 8px;
+  }
+
+  /* Accessibility: ensure high contrast for print */
+  tr { page-break-inside: avoid; }
+  thead { display: table-header-group; }
+  tfoot { display: table-footer-group; }
+
   a, a:link, a:visited {
     color: #0b66c2 !important;
     text-decoration: underline !important;
   }
 
-  /* Avoid cutting table rows */
-  tr { page-break-inside: avoid; }
-  thead { display: table-header-group; }
-  tfoot { display: table-footer-group; }
+  /* Last resort: ensure body is white */
+  body { background: #fff !important; color: #111 !important; }
 }
-
-/* Last resort: ensure body is white */
-body { background: #fff !important; color: #111 !important; }
-
-/* End of print.css */
