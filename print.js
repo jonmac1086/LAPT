@@ -1,7 +1,3 @@
-
-
-
-
   // Helper - find modal content element
   function getModalContentElement() {
     const modal = document.getElementById('viewApplicationModal');
