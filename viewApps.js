@@ -698,5 +698,4 @@ window.closeViewApplicationModal = closeViewApplicationModal;
 window.viewApplication = viewApplication;
 window.openDocument = openDocument;
 window.saveStageComment = saveStageComment;
-window.printApplicationDetails = function() { window.print(); };
 window.populatePersonalBudgetReview = populatePersonalBudgetReview;
