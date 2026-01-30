@@ -1,7 +1,4 @@
-/* print.css
-   Print-only styles for the view modal. Entire file scoped to print media
-   so it does not hide UI elements on screen.
-*/
+
 
 @media print {
   /* Basic page */
