@@ -1,7 +1,6 @@
 
 
-(function () {
-  'use strict';
+
 
   // Helper - find modal content element
   function getModalContentElement() {
