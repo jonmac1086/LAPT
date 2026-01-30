@@ -1,12 +1,4 @@
-// print.js
-// Print only the view modal content (not the full webpage).
-// Exposes window.printApplicationDetails() which prints the #viewApplicationModal content.
-// - It clones relevant stylesheet/link/style nodes into the print window so styles are preserved.
-// - It sanitizes the modal content (removes close buttons and action buttons).
-// - It prefers a popup print window (so browser prints only that content).
-// - If popup is blocked, it falls back to printing the current page but hides non-modal content during print.
-// Usage: call window.printApplicationDetails() after the view modal is open and populated.
-// Optionally pass { force: true } to print even if status isn't 'APPROVED'.
+
 
 (function () {
   'use strict';
