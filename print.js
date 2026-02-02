@@ -1,225 +1,394 @@
-  // Helper - find modal content element
-  function getModalContentElement() {
-    const modal = document.getElementById('viewApplicationModal');
-    if (!modal) return null;
-    // prefer inner .modal-content, otherwise use modal itself
-    return modal.querySelector('.modal-content') || modal;
-  }
-
-  // Helper - determine approved status (returns boolean)
-  function modalIsApproved() {
-    const badge = document.getElementById('applicationStatusBadge');
-    if (!badge) return false;
-    const text = (badge.textContent || '').toString().trim().toUpperCase();
-    return text === 'APPROVED' || text.includes('APPROVED');
-  }
-
-  // Remove UI elements not desired in print (close buttons, action buttons etc.)
-  function sanitizeClone(clone) {
-    try {
-      // Remove elements that are purely UI controls for the modal
-      const selectors = [
-        '.close-button',
-        '.action-btn',
-        '.header-actions',
-        '.compact-actions',
-        '.modal-footer',
-        '.tab-navigation',
-        '.tab-button',
-        '.btn-icon',
-        '.btn-outline',
-        '.btn-primary',
-        '.btn-secondary',
-        '#btn-print' // explicit print button
-      ];
-      selectors.forEach(sel => {
-        clone.querySelectorAll(sel).forEach(el => el.parentNode && el.parentNode.removeChild(el));
-      });
-
-      // Remove any script tags from the clone
-      clone.querySelectorAll('script').forEach(s => s.parentNode && s.parentNode.removeChild(s));
-
-      // Remove interactive attributes
-      clone.querySelectorAll('[onclick]').forEach(el => el.removeAttribute('onclick'));
-      clone.querySelectorAll('button').forEach(btn => btn.setAttribute('disabled', 'disabled'));
-    } catch (e) {
-      // Non-fatal; continue
-      console.warn('sanitizeClone error', e);
+// Helper - Get modal content for printing
+function getModalContentForPrint() {
+  // Try multiple selectors to find the modal content
+  const selectors = [
+    '#viewApplicationModal .modal-content',
+    '#viewApplicationModal',
+    '.loan-application-modal',
+    '.view-details-section'
+  ];
+  
+  for (const selector of selectors) {
+    const element = document.querySelector(selector);
+    if (element && element.innerHTML.trim()) {
+      return element;
     }
-    return clone;
   }
+  return null;
+}
 
-  // Copy styles (link rel="stylesheet" and inline <style>) to the new document head
-  function copyStylesToDoc(sourceDoc, targetDoc) {
-    // Copy <link rel="stylesheet"> nodes
-    const links = Array.from(sourceDoc.querySelectorAll('link[rel="stylesheet"]'));
-    links.forEach(link => {
-      const href = link.getAttribute('href');
-      if (!href) return;
-      const newLink = targetDoc.createElement('link');
-      newLink.rel = 'stylesheet';
-      newLink.href = href;
-      // Preserve media attribute if present
-      if (link.media) newLink.media = link.media;
-      targetDoc.head.appendChild(newLink);
-    });
-
-    // Copy inline <style> blocks
-    const styles = Array.from(sourceDoc.querySelectorAll('style'));
-    styles.forEach(style => {
-      const s = targetDoc.createElement('style');
-      s.type = 'text/css';
-      s.appendChild(targetDoc.createTextNode(style.textContent || ''));
-      targetDoc.head.appendChild(s);
-    });
-
-    // Add some print-specific CSS to ensure clean page
-    const printCss = `
-      @media print {
-        body { -webkit-print-color-adjust: exact; }
-        /* ensure modal content is full width on paper */
-        .modal-content, .loan-application-modal { max-width: 100% !important; width: 100% !important; box-shadow: none !important; border: none !important; }
-      }
-      /* small page reset for print window */
-      body { margin: 12px; font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; color: #111; background: #fff; }
-    `;
-    const ps = targetDoc.createElement('style');
-    ps.type = 'text/css';
-    ps.appendChild(targetDoc.createTextNode(printCss));
-    targetDoc.head.appendChild(ps);
+// Helper - Determine if application is approved
+function isApplicationApproved() {
+  const statusElements = [
+    document.getElementById('applicationStatusBadge'),
+    document.querySelector('.status-badge'),
+    document.querySelector('[data-status]')
+  ];
+  
+  for (const el of statusElements) {
+    if (!el) continue;
+    const text = (el.textContent || '').toUpperCase();
+    if (text.includes('APPROVED')) return true;
   }
+  return false;
+}
 
-  // Build a new window and print it
-  function printInPopup(clonedContent, title = 'Application Print') {
-    const printWindow = window.open('', '_blank', 'noopener,noreferrer');
-    if (!printWindow) return null; // popup blocked
-    const doc = printWindow.document;
-    doc.open();
-    // Basic HTML shell
-    doc.write(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title></head><body></body></html>`);
-    doc.close();
+// Sanitize content for printing
+function sanitizeForPrint(element) {
+  if (!element) return null;
+  
+  // Deep clone
+  const clone = element.cloneNode(true);
+  
+  // Remove interactive elements
+  const removeSelectors = [
+    'button',
+    'input',
+    'textarea',
+    'select',
+    '.no-print',
+    '.action-btn',
+    '.compact-actions',
+    '.close-button',
+    '.tab-navigation',
+    '.tab-button',
+    '.btn-icon',
+    '.header-actions',
+    '.modal-footer',
+    '[onclick]',
+    '[onchange]',
+    '[contenteditable="true"]'
+  ];
+  
+  removeSelectors.forEach(selector => {
+    clone.querySelectorAll(selector).forEach(el => {
+      el.removeAttribute('onclick');
+      el.removeAttribute('onchange');
+      el.style.display = 'none';
+    });
+  });
+  
+  // Remove script tags
+  clone.querySelectorAll('script').forEach(script => script.remove());
+  
+  // Remove hidden elements
+  clone.querySelectorAll('[style*="display: none"], [style*="display:none"], [hidden]')
+    .forEach(el => el.remove());
+  
+  // Add print-specific classes
+  clone.classList.add('print-version');
+  
+  // Ensure tables have borders for print
+  clone.querySelectorAll('table').forEach(table => {
+    table.setAttribute('border', '1');
+    table.style.borderCollapse = 'collapse';
+    table.style.width = '100%';
+  });
+  
+  // Add page break prevention
+  clone.querySelectorAll('tr, .break-avoid').forEach(el => {
+    el.style.pageBreakInside = 'avoid';
+  });
+  
+  // Add print-only message
+  const printInfo = document.createElement('div');
+  printInfo.className = 'print-info';
+  printInfo.style.cssText = `
+    font-size: 10px;
+    color: #666;
+    text-align: center;
+    margin-bottom: 10px;
+    border-bottom: 1px dashed #ccc;
+    padding-bottom: 5px;
+  `;
+  printInfo.textContent = `Printed from Loan Application System on ${new Date().toLocaleString()}`;
+  
+  clone.insertBefore(printInfo, clone.firstChild);
+  
+  return clone;
+}
 
-    // Copy styles (links and inline) from parent document
-    copyStylesToDoc(document, doc);
-
-    // Append the cloned content into body
-    doc.body.appendChild(clonedContent);
-
-    // Wait for fonts and styles to load, then print
-    // Use a small timeout; you could also use load events for each stylesheet but that's more complex.
-    setTimeout(() => {
-      try {
-        printWindow.focus();
-        // Trigger print, then close popup after short delay
-        if (printWindow.print) {
-          printWindow.print();
-          // Close after printing; some browsers may not allow closing windows not opened by script, but we opened it.
-          setTimeout(() => {
-            try { printWindow.close(); } catch (e) { /* ignore */ }
-          }, 700);
-        } else {
-          // Fallback: show instructions
-          alert('Print dialog not available. Please use your browser\'s print command.');
+// Copy styles to print window
+function copyStylesToPrintWindow(sourceWindow, targetWindow) {
+  const styles = [];
+  
+  // Get all stylesheets
+  Array.from(sourceWindow.document.styleSheets).forEach(sheet => {
+    try {
+      if (sheet.href) {
+        // External stylesheet
+        const link = targetWindow.document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = sheet.href;
+        targetWindow.document.head.appendChild(link);
+      } else {
+        // Inline stylesheet
+        const rules = Array.from(sheet.cssRules || sheet.rules || []);
+        const cssText = rules.map(rule => rule.cssText).join('\n');
+        if (cssText) {
+          const style = targetWindow.document.createElement('style');
+          style.textContent = cssText;
+          targetWindow.document.head.appendChild(style);
         }
-      } catch (e) {
-        console.error('Print failed', e);
       }
-    }, 250);
-    return printWindow;
-  }
-
-  // Fallback printing in-place: hide non-modal content using a print-only stylesheet, call window.print(), then restore.
-  function printInPlace(cloneHtml) {
-    const hideStyleId = 'print-temp-hide-style';
-    // create style to hide everything except our content wrapper
-    const css = `
-      @media print {
-        body * { visibility: hidden !important; }
-        .__print_only_wrapper, .__print_only_wrapper * { visibility: visible !important; }
-        .__print_only_wrapper { position: relative; left: 0; top: 0; }
-      }
-    `;
-    let styleEl = document.getElementById(hideStyleId);
-    if (!styleEl) {
-      styleEl = document.createElement('style');
-      styleEl.id = hideStyleId;
-      styleEl.type = 'text/css';
-      styleEl.appendChild(document.createTextNode(css));
-      document.head.appendChild(styleEl);
+    } catch (e) {
+      console.warn('Could not copy stylesheet:', e);
     }
+  });
+  
+  // Add print-specific styles
+  const printStyle = targetWindow.document.createElement('style');
+  printStyle.textContent = `
+    @media print {
+      body { margin: 0; padding: 0; font-family: Arial, sans-serif; }
+      .print-version { width: 100% !important; max-width: 100% !important; }
+      table { page-break-inside: auto; }
+      tr { page-break-inside: avoid; page-break-after: auto; }
+      thead { display: table-header-group; }
+      tfoot { display: table-footer-group; }
+      .no-print, .action-btn, button { display: none !important; }
+      a { color: #000 !important; text-decoration: none !important; }
+    }
+    @page { margin: 15mm; }
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .print-info { display: block; }
+  `;
+  targetWindow.document.head.appendChild(printStyle);
+}
 
-    const wrapper = document.createElement('div');
-    wrapper.className = '__print_only_wrapper';
-    wrapper.style.background = '#fff';
-    wrapper.appendChild(cloneHtml);
+// Create optimized print window
+function createPrintWindow(title = 'Application Print') {
+  const printWindow = window.open('', '_blank', 'width=800,height=600');
+  if (!printWindow) {
+    throw new Error('Popup blocked. Please allow popups to print.');
+  }
+  
+  printWindow.document.open();
+  printWindow.document.write(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>${escapeHtml(title)}</title>
+      <style>
+        body { margin: 20px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .loading-print { text-align: center; padding: 40px; }
+      </style>
+    </head>
+    <body>
+      <div class="loading-print">
+        <h3>Preparing document for printing...</h3>
+        <p>Please wait while we prepare the application details.</p>
+      </div>
+    </body>
+    </html>
+  `);
+  printWindow.document.close();
+  
+  return printWindow;
+}
 
-    document.body.appendChild(wrapper);
-
-    // Delay slightly to allow layout, then print and cleanup
+// Main print function
+async function printApplicationDetails(options = {}) {
+  const force = !!options.force;
+  const showWarning = options.showWarning !== false;
+  
+  try {
+    // Check if application is approved
+    if (!force && showWarning && !isApplicationApproved()) {
+      const shouldPrint = await showPrintWarning();
+      if (!shouldPrint) return;
+    }
+    
+    // Get modal content
+    const modalContent = getModalContentForPrint();
+    if (!modalContent) {
+      throw new Error('Could not find application content to print. Please make sure the application is open.');
+    }
+    
+    // Show loading
+    if (typeof showLoading === 'function') {
+      showLoading('Preparing print...');
+    }
+    
+    // Sanitize content
+    const printContent = sanitizeForPrint(modalContent);
+    if (!printContent) {
+      throw new Error('Failed to prepare content for printing.');
+    }
+    
+    // Get application info for title
+    const appNumber = document.getElementById('applicationNumber')?.textContent ||
+                     document.querySelector('.application-number')?.textContent ||
+                     'Unknown';
+    const applicantName = document.getElementById('applicationApplicantName')?.textContent ||
+                         document.querySelector('.applicant-name')?.textContent ||
+                         'Unknown Applicant';
+    const title = `Application ${appNumber} - ${applicantName}`;
+    
+    // Create print window
+    const printWindow = createPrintWindow(title);
+    
+    // Copy styles
+    copyStylesToPrintWindow(window, printWindow);
+    
+    // Add content
     setTimeout(() => {
       try {
-        window.print();
-      } catch (e) {
-        console.error('In-place print failed', e);
-      } finally {
-        // cleanup
+        printWindow.document.body.innerHTML = '';
+        printWindow.document.body.appendChild(printContent);
+        
+        // Trigger print
         setTimeout(() => {
-          try {
-            document.head.removeChild(styleEl);
-            document.body.removeChild(wrapper);
-          } catch (e) { /* ignore */ }
-        }, 200);
+          printWindow.focus();
+          printWindow.print();
+          
+          // Clean up
+          setTimeout(() => {
+            try {
+              printWindow.close();
+            } catch (e) {
+              // Ignore close errors
+            }
+          }, 500);
+        }, 500);
+      } catch (e) {
+        printWindow.document.body.innerHTML = `
+          <div style="color: red; padding: 40px; text-align: center;">
+            <h3>Print Error</h3>
+            <p>${escapeHtml(e.message)}</p>
+            <button onclick="window.close()">Close</button>
+          </div>
+        `;
+        throw e;
       }
-    }, 200);
-  }
-
-  // Escape HTML for title
-  function escapeHtml(str) {
-    if (!str) return '';
-    return String(str).replace(/[&<>"']/g, s => ({
-      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-    }[s]));
-  }
-
-  // Public function: prints the view modal only
-  // options: { force: boolean } - when true, prints regardless of status
-  async function printApplicationDetails(options = {}) {
-    try {
-      const force = !!options.force;
-      const modalContent = getModalContentElement();
-      if (!modalContent) {
-        alert('Print error: view modal not loaded.');
-        return;
-      }
-
-      if (!force && !modalIsApproved()) {
-        const proceed = confirm('This application is not marked APPROVED. Do you still want to print?');
-        if (!proceed) return;
-      }
-
-      // Clone modal content to avoid modifying original DOM
-      const clone = modalContent.cloneNode(true);
-      sanitizeClone(clone);
-
-      // If the application number or title exists, use it in print title
-      const appNumEl = clone.querySelector('.application-number') || document.getElementById('applicationNumber') || clone.querySelector('#app-number');
-      const title = appNumEl ? (`Application - ${appNumEl.textContent.trim()}`) : 'Application Print';
-
-      // Try to open popup and print there
-      const printedWindow = printInPopup(clone, title);
-      if (!printedWindow) {
-        // Popup blocked, fallback to in-place print
-        printInPlace(clone);
-      }
-    } catch (err) {
-      console.error('printApplicationDetails error', err);
-      alert('Printing failed: ' + (err && err.message ? err.message : err));
+    }, 100);
+    
+  } catch (error) {
+    console.error('Print error:', error);
+    
+    // Show error to user
+    if (typeof showToast === 'function') {
+      showToast(`Print failed: ${error.message}`, 'error');
+    } else {
+      alert(`Print failed: ${error.message}`);
+    }
+    
+    // Fallback to browser print
+    if (options.fallback !== false) {
+      console.log('Attempting fallback print...');
+      window.print();
+    }
+  } finally {
+    // Hide loading
+    if (typeof hideLoading === 'function') {
+      hideLoading();
     }
   }
+}
 
-  // Expose globally (overrides default window.printApplicationDetails if present)
-  window.printApplicationDetails = printApplicationDetails;
+// Show warning for non-approved applications
+async function showPrintWarning() {
+  return new Promise((resolve) => {
+    if (typeof showConfirmModal === 'function') {
+      showConfirmModal(
+        'This application is not marked as APPROVED. Do you still want to print?',
+        {
+          title: 'Confirm Print',
+          confirmText: 'Print Anyway',
+          cancelText: 'Cancel',
+          danger: false
+        }
+      ).then(resolve);
+    } else {
+      resolve(confirm('This application is not marked as APPROVED. Do you still want to print?'));
+    }
+  });
+}
 
-  // Also expose a convenience function that ensures the modal is loaded (useful if you want to call before init)
-  window.printViewModal = function (opts) { return window.printApplicationDetails(opts || {}); };
-})();
+// Quick print function (no warnings)
+function quickPrint() {
+  return printApplicationDetails({ showWarning: false, force: true });
+}
+
+// Export function for non-approved applications
+function exportApplicationDetails() {
+  if (typeof showConfirmModal === 'function') {
+    showConfirmModal(
+      'Export application details as a printable document?',
+      {
+        title: 'Export Document',
+        confirmText: 'Export',
+        cancelText: 'Cancel'
+      }
+    ).then((confirmed) => {
+      if (confirmed) {
+        printApplicationDetails({ force: true, fallback: false });
+      }
+    });
+  } else {
+    if (confirm('Export application details as a printable document?')) {
+      printApplicationDetails({ force: true, fallback: false });
+    }
+  }
+}
+
+// Helper function to escape HTML
+function escapeHtml(text) {
+  if (!text) return '';
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// Initialize print functionality
+function initPrint() {
+  // Add print button if not exists
+  if (!document.getElementById('btn-print')) {
+    const printBtn = document.createElement('button');
+    printBtn.id = 'btn-print';
+    printBtn.className = 'action-btn';
+    printBtn.innerHTML = '<i class="fas fa-print"></i> Print';
+    printBtn.onclick = () => printApplicationDetails();
+    
+    const headerActions = document.querySelector('.header-actions');
+    if (headerActions) {
+      headerActions.insertBefore(printBtn, headerActions.firstChild);
+    }
+  }
+  
+  // Add export button if not exists
+  if (!document.getElementById('btn-export')) {
+    const exportBtn = document.createElement('button');
+    exportBtn.id = 'btn-export';
+    exportBtn.className = 'action-btn primary';
+    exportBtn.innerHTML = '<i class="fas fa-download"></i> Export';
+    exportBtn.onclick = exportApplicationDetails;
+    
+    const headerActions = document.querySelector('.header-actions');
+    if (headerActions) {
+      const printBtn = document.getElementById('btn-print');
+      if (printBtn) {
+        headerActions.insertBefore(exportBtn, printBtn.nextSibling);
+      } else {
+        headerActions.appendChild(exportBtn);
+      }
+    }
+  }
+}
+
+// Auto-initialize when DOM is ready
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initPrint);
+} else {
+  initPrint();
+}
+
+// Expose to global scope
+window.printApplicationDetails = printApplicationDetails;
+window.quickPrint = quickPrint;
+window.exportApplicationDetails = exportApplicationDetails;
+window.initPrint = initPrint;
+
+console.log('Print module loaded successfully');
