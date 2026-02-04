@@ -267,7 +267,15 @@ document.addEventListener('DOMContentLoaded', function() {
 
   const loggedInName = localStorage.getItem('loggedInName');
   if (loggedInName) {
-    verifyUserOnLoad(loggedInName);
+    // Auto-verify removed. Restore UI locally without calling verifyUserOnLoad().
+    // This prevents an automatic network call on page load.
+    setLoggedInUser(loggedInName, localStorage.getItem('userRole') || '');
+    showDashboard();
+    document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
+    const newSection = document.getElementById('new');
+    if (newSection) newSection.classList.add('active');
+    initializeAppCount();
+    initializeAndRefreshTables();
   } else {
     showLoginPage();
   }
@@ -300,7 +308,6 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
 });
-
 // ----------- AUTH / SESSION ----------
 function showLoginPage() {
   document.body.classList.remove('logged-in');
@@ -863,4 +870,5 @@ window.closeSuccessModal = closeSuccessModal;
 window.setLoggedInUser = setLoggedInUser;
 window.loadModalContent = loadModalContent;
 window.loadModalContentIfNeeded = loadModalContentIfNeeded;
+
 
