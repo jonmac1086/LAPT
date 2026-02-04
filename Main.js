@@ -1,8 +1,9 @@
 // Main.js — single modal loader implementation (no recursion) + app logic
-// Updated to integrate the shared UI utilities (showGlobalLoader/hideGlobalLoader, showSuccessModal, showConfirmModal, showToast)
-// and to reliably show a modal-local loader inside the view modal when it is active.
+// User management JS has been moved to UserMgt.js; Main.js delegates to that module where needed.
 
-// ----------- CACHED ELEMENTS & VARIABLES -----------
+/* ==========================================================================
+   App-level state & caches
+   ========================================================================== */
 const cachedElements = {};
 let currentAppNumber = "";
 let currentAppFolderId = "";
@@ -11,10 +12,12 @@ let notificationCheckInterval;
 let refreshInterval;
 let currentViewingAppData = null;
 
-// Per-section state to avoid flicker and handle concurrent requests
+// Per-section state to avoid flicker & handle concurrent requests
 const sectionStates = {}; // { [sectionId]: { requestId: number, loading: boolean } }
 
-// ----------- CORE HELPERS (define early so other code can call them) -----------
+/* ==========================================================================
+   Core helpers
+   ========================================================================== */
 function clearIntervals() {
   if (notificationCheckInterval) clearInterval(notificationCheckInterval);
   if (refreshInterval) clearInterval(refreshInterval);
@@ -32,9 +35,9 @@ function debounce(func, wait) {
   };
 }
 
-// showLoading/hideLoading:
-// - If the view modal is open, show a loader inside it (centered card)
-// - Otherwise call the global loader (ui-modals) which is reference counted
+/* ==========================================================================
+   Loading UI (modal-local first, global fallback)
+   ========================================================================== */
 function showLoading(message = 'Processing...') {
   try {
     const viewModal = document.getElementById('viewApplicationModal');
@@ -46,16 +49,13 @@ function showLoading(message = 'Processing...') {
         local = document.createElement('div');
         local.id = 'modal-local-loading';
         local.className = 'modal-local-loading';
-        // Ensure the loader covers the modal content — position absolute with inset:0
         local.innerHTML = `
           <div class="modal-local-card" role="status" aria-live="polite" aria-label="Loading">
             <div class="spinner large" aria-hidden="true"></div>
             <div class="modal-local-message"></div>
           </div>
         `;
-        // Place inside the modal-content so it overlays only the modal
         const container = viewModal.querySelector('.modal-content') || viewModal;
-        // Ensure container has positioning context (relative) so absolute inset works
         const computedPosition = window.getComputedStyle(container).position;
         if (!computedPosition || computedPosition === 'static') {
           container.style.position = 'relative';
@@ -73,7 +73,8 @@ function showLoading(message = 'Processing...') {
       window.showGlobalLoader(message);
       return;
     }
-    // Fallback to legacy global modal element
+
+    // Fallback legacy loader
     let globalModal = document.getElementById('global-loading-modal');
     if (!globalModal) {
       globalModal = document.createElement('div');
@@ -99,10 +100,8 @@ function showLoading(message = 'Processing...') {
 
 function hideLoading() {
   try {
-    // If modal-local loading exists and visible, hide it
     const local = document.getElementById('modal-local-loading');
     if (local && local.style.display !== 'none') {
-      // Prefer removing the element entirely so repeated calls create a fresh instance
       try {
         local.parentNode && local.parentNode.removeChild(local);
       } catch (e) {
@@ -111,7 +110,6 @@ function hideLoading() {
       return;
     }
 
-    // Global UI loader via ui-modals
     if (typeof window.hideGlobalLoader === 'function') {
       window.hideGlobalLoader();
       return;
@@ -125,10 +123,13 @@ function hideLoading() {
   }
 }
 
-// expose these for other modules that expect them (don't overwrite if already provided by ui-modals)
+// Expose compatibility names if ui-modals also defines them
 window.showLoading = window.showLoading || showLoading;
 window.hideLoading = window.hideLoading || hideLoading;
 
+/* ==========================================================================
+   Utility helpers
+   ========================================================================== */
 function escapeHtml(s) {
   if (!s) return '';
   return s.toString().replace(/[&<>"']/g, function(m){
@@ -136,7 +137,9 @@ function escapeHtml(s) {
   });
 }
 
-// --------- Table helpers to reduce flicker & DOM churn ----------
+/* ==========================================================================
+   Table update helpers (diffing to reduce DOM churn)
+   ========================================================================== */
 function ensureSectionState(sectionId) {
   if (!sectionStates[sectionId]) sectionStates[sectionId] = { requestId: 0, loading: false };
   return sectionStates[sectionId];
@@ -162,7 +165,6 @@ function setSectionHeaderLoading(sectionId, isLoading) {
   }
 }
 
-// Create row and attach click handler that passes the anchor element for spinner placement
 function createRowForApplication(app) {
   const tr = document.createElement('tr');
 
@@ -232,7 +234,9 @@ function diffUpdateTable(tableId, applications) {
   tbody.replaceChildren(frag);
 }
 
-// ----------- PAGE INIT -----------
+/* ==========================================================================
+   Page initialization & session handling
+   ========================================================================== */
 function cacheElements() {
   const elements = {
     'logged-in-user': 'logged-in-user',
@@ -267,15 +271,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
   const loggedInName = localStorage.getItem('loggedInName');
   if (loggedInName) {
-    // Auto-verify removed. Restore UI locally without calling verifyUserOnLoad().
-    // This prevents an automatic network call on page load.
-    setLoggedInUser(loggedInName, localStorage.getItem('userRole') || '');
-    showDashboard();
-    document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
-    const newSection = document.getElementById('new');
-    if (newSection) newSection.classList.add('active');
-    initializeAppCount();
-    initializeAndRefreshTables();
+    verifyUserOnLoad(loggedInName);
   } else {
     showLoginPage();
   }
@@ -308,7 +304,10 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
 });
-// ----------- AUTH / SESSION ----------
+
+/* ==========================================================================
+   Authentication & session helpers
+   ========================================================================== */
 function showLoginPage() {
   document.body.classList.remove('logged-in');
   localStorage.removeItem('loggedInName');
@@ -331,7 +330,6 @@ function setLoggedInUser(name, role = '') {
 }
 
 async function logout() {
-  // Use promise-based confirmation modal
   try {
     const ok = (typeof window.showConfirmModal === 'function')
       ? await window.showConfirmModal('Are you sure you want to logout?', { title: 'Confirm Logout', confirmText: 'Logout', cancelText: 'Cancel' })
@@ -410,7 +408,9 @@ async function handleLoginFunction(name) {
   }
 }
 
-// ----------- SINGLE MODAL LOADER (NO RECURSION) ----------
+/* ==========================================================================
+   Modal loader (single) — loads newApps.html or viewApps.html into modal containers
+   ========================================================================== */
 async function loadModalContent(modalName = 'new') {
   const cfg = modalName === 'view' ? {
     url: 'viewApps.html',
@@ -521,7 +521,9 @@ async function loadModalContentIfNeeded(modalName = 'new') { return await loadMo
 window.loadModalContent = loadModalContent;
 window.loadModalContentIfNeeded = loadModalContentIfNeeded;
 
-// ----------- VIEW MODAL OPEN (UPDATED) ----------
+/* ==========================================================================
+   View modal flow
+   ========================================================================== */
 async function openViewApplicationModal(appData) {
   const ok = await loadModalContent('view');
   if (!ok) {
@@ -565,11 +567,6 @@ async function openViewApplicationModal(appData) {
   }
 }
 
-function closeModal() {
-  const modal = document.getElementById('newApplicationModal');
-  if (modal) modal.style.display = 'none';
-}
-
 function closeViewApplicationModal() {
   const modal = document.getElementById('viewApplicationModal');
   if (modal) {
@@ -582,9 +579,11 @@ function closeViewApplicationModal() {
 }
 window.closeViewApplicationModal = closeViewApplicationModal;
 
-// ----------- LOAD APPLICATIONS / TABLES ----------
+/* ==========================================================================
+   Load applications per section (NEW, PENDING, PENDING_APPROVAL, APPROVED)
+   ========================================================================== */
 async function loadApplications(sectionId, options = {}) {
-  const map = { 'new': 'NEW','pending':'PENDING','pending-approvals':'PENDING_APPROVAL','approved':'APPROVED' };
+  const map = { 'new': 'NEW','pending':'PENDING','pending-approvals':'PENDING APPROVAL','approved':'APPROVED' };
   const status = map[sectionId];
   if (!status) return;
 
@@ -629,19 +628,9 @@ async function loadApplications(sectionId, options = {}) {
   }
 }
 
-// Backwards compatible wrapper
-function populateTable(tableId, applications) {
-  diffUpdateTable(tableId, applications || []);
-}
-
-// ----------- handleAppNumberClick (fixed flow) ----------
-/*
-  Important change:
-  - We no longer display the view modal before fetching the application details.
-  - We show a small inline spinner next to the clicked application number while fetching.
-  - After fetching, we decide whether to open the 'new' modal (for NEW/DRAFT) or the 'view' modal.
-  - This prevents both modals appearing at once.
-*/
+/* ==========================================================================
+   Handle clicking application numbers (load details then open view modal)
+   ========================================================================== */
 async function handleAppNumberClick(appNumber, anchorEl = null) {
   if (!appNumber) { if (typeof window.showToast === 'function') window.showToast('Invalid application number', 'error'); else alert('Invalid application number'); return; }
   const userName = localStorage.getItem('loggedInName') || '';
@@ -650,7 +639,6 @@ async function handleAppNumberClick(appNumber, anchorEl = null) {
   let spinner = null;
   try {
     if (!anchorEl) {
-      // try to find the first anchor with matching textContent
       const anchors = Array.from(document.querySelectorAll('.app-number-link'));
       anchorEl = anchors.find(a => a.textContent === appNumber) || null;
     }
@@ -665,31 +653,27 @@ async function handleAppNumberClick(appNumber, anchorEl = null) {
   }
 
   try {
-    // Fetch details without letting ApiService show the legacy overlay.
     const response = await window.apiService.getApplicationDetails(appNumber, userName, { showLoading: false });
 
-    // remove inline spinner
     if (spinner && spinner.parentNode) spinner.parentNode.removeChild(spinner);
 
     if (response && response.success && response.data) {
       const appData = response.data;
 
-      // If this application is a NEW draft, open the New Application modal only
+      // If this application is a NEW draft, open the New Application modal (edit)
       if (appData.status === 'NEW' && (appData.completionStatus === 'DRAFT' || appData.completionStatus === 'Draft' || appData.completionStatus === 'draft')) {
-        // Load new modal content if needed, then show newApplication modal in edit mode
         const ok = await loadModalContent('new');
         if (!ok) { if (typeof window.showToast === 'function') window.showToast('Failed to load form.', 'error'); else alert('Failed to load form.'); return; }
         if (typeof showNewApplicationModal === 'function') {
           showNewApplicationModal(appNumber);
         } else {
-          // fallback: open new modal element manually (if any)
           const nm = document.getElementById('newApplicationModal');
           if (nm) nm.style.display = 'block';
         }
         return;
       }
 
-      // Otherwise open view modal (load content first, then initialize)
+      // Otherwise open view modal
       const okView = await loadModalContent('view');
       if (!okView) {
         if (typeof window.showToast === 'function') window.showToast('Failed to load view modal. Please refresh the page.', 'error');
@@ -697,14 +681,12 @@ async function handleAppNumberClick(appNumber, anchorEl = null) {
         return;
       }
 
-      // Show modal (so modal-local loader can be used by any subsequent actions)
       const modal = document.getElementById('viewApplicationModal');
       if (modal) {
         modal.style.display = 'block';
         modal.classList.add('active');
       }
 
-      // Initialize view modal with data
       if (typeof initViewApplicationModal === 'function') {
         try { initViewApplicationModal(appData); } catch (e) { console.warn('initViewApplicationModal error', e); }
       } else {
@@ -722,7 +704,9 @@ async function handleAppNumberClick(appNumber, anchorEl = null) {
   }
 }
 
-// ----------- BADGE & NOTIFICATION HELPERS ----------
+/* ==========================================================================
+   Badges, notifications & periodic refresh
+   ========================================================================== */
 async function updateBadgeCounts() {
   try {
     const resp = await window.apiService.getApplicationCounts();
@@ -776,21 +760,15 @@ async function initializeAndRefreshTables() {
   }, 60000);
 }
 
-// ----------- USER MANAGEMENT (minimal) ----------
-async function getAllUsersHandler() {
-  try {
-    const r = await window.apiService.getAllUsers();
-    const users = r.data || [];
-    const tbody = document.getElementById('users-list-body');
-    if (!tbody) return;
-    if (!users.length) { tbody.innerHTML = `<tr><td colspan="4" class="no-data">No users found</td></tr>`; return; }
-    tbody.innerHTML = users.map(u => `<tr><td>${escapeHtml(u.name)}</td><td>${escapeHtml(u.level)}</td><td>${escapeHtml(u.role)}</td><td class="actions"><button class="btn-icon btn-delete" onclick="deleteUser('${escapeHtml(u.name)}')"><i class="fas fa-trash"></i></button></td></tr>`).join('');
-  } catch (e) { console.error('getAllUsersHandler', e); const tbody = document.getElementById('users-list-body'); if (tbody) tbody.innerHTML = `<tr><td colspan="4" class="error">Error loading users</td></tr>`; }
-}
-function refreshUsersList() { getAllUsersHandler(); }
-async function populateUsersTable() { await getAllUsersHandler(); }
+/* ==========================================================================
+   User management delegation (UserMgt.js now provides loadUserMgtSection / initUserMgt)
+   ========================================================================== */
+// Main.js will call window.loadUserMgtSection when showing the add-user section.
+// See UserMgt.js for the full implementation.
 
-// ----------- NOTIFICATIONS ----------
+/* ==========================================================================
+   Notifications (browser) & visibility handling
+   ========================================================================== */
 function initializeBrowserNotifications() {
   if (!('Notification' in window)) return;
   if (Notification.permission === 'granted') setupNotificationListener();
@@ -825,50 +803,46 @@ async function initializeAppCount() {
   try { const r = await window.apiService.getApplicationCountsForUser(u); lastAppCount = r.count || 0; } catch (e) { console.error('initializeAppCount', e); }
 }
 
-// ----------- SUCCESS MODAL ----------
+/* ==========================================================================
+   Small UX helpers (success modal wrapper)
+   ========================================================================== */
 async function showSuccessModal(message, options = {}) {
   if (typeof window.showSuccessModal === 'function') {
     return window.showSuccessModal(message, options);
   }
-  // fallback to simple alert
   alert(message);
 }
 function closeSuccessModal() { if (typeof window.hideSuccessModal === 'function') return window.hideSuccessModal(); }
 
-// ----------- EXPORTS ----------
+/* ==========================================================================
+   Section navigation — delegates to loadUserMgtSection for user management
+   ========================================================================== */
 window.showSection = async function(sectionId) {
   if (restrictIfNotLoggedIn()) return;
   document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
   const el = document.getElementById(sectionId); if (el) el.classList.add('active');
-  // Explicit manual refresh when a section is selected
+
+  // If user management section requested, call the loader in UserMgt.js
+  if (sectionId === 'add-user') {
+    if (typeof window.loadUserMgtSection === 'function') {
+      try { await window.loadUserMgtSection(); } catch (e) { console.warn('loadUserMgtSection not available', e); }
+    }
+  }
+
+  // Refresh table for the selected section if applicable
   await loadApplications(sectionId, { showLoading: true });
 };
 window.refreshApplications = refreshApplications;
-window.refreshUsersList = refreshUsersList;
-window.deleteUser = async function(name) {
-  try {
-    const ok = (typeof window.showConfirmModal === 'function')
-      ? await window.showConfirmModal(`Delete user: ${name}?`, { title: 'Confirm Delete', confirmText: 'Delete', cancelText: 'Cancel', danger: true })
-      : confirm('Delete user: ' + name + '?');
-    if (!ok) return;
-    const res = await window.apiService.deleteUser(name);
-    if (res.success) {
-      if (typeof window.showSuccessModal === 'function') await window.showSuccessModal(res.message || 'Deleted');
-      else alert(res.message || 'Deleted');
-      refreshUsersList();
-    } else {
-      if (typeof window.showToast === 'function') window.showToast(res.message || 'Delete failed', 'error');
-      else alert(res.message || 'Delete failed');
-    }
-  } catch(e){
-    if (typeof window.showToast === 'function') window.showToast('Error deleting user: ' + (e && e.message), 'error');
-    else alert('Error deleting user: '+(e && e.message));
-  }
-};
-window.logout = logout;
-window.closeSuccessModal = closeSuccessModal;
-window.setLoggedInUser = setLoggedInUser;
+
+/* ==========================================================================
+   Exports for other scripts
+   ========================================================================== */
+window.closeViewApplicationModal = closeViewApplicationModal;
 window.loadModalContent = loadModalContent;
 window.loadModalContentIfNeeded = loadModalContentIfNeeded;
+window.setLoggedInUser = setLoggedInUser;
+window.refreshApplications = refreshApplications;
 
-
+/* ==========================================================================
+   End of Main.js
+   ========================================================================== */
