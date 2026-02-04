@@ -15,7 +15,6 @@
       <button type="button" class="action-btn" id="btn-print" onclick="printApplicationDetails()">
         <i class="fas fa-print"></i> Print
       </button>
-      <!-- Export button removed -->
       <button type="button" id="btn-edit" class="action-btn edit-btn" title="Edit Application" onclick="openEditSection('tab1')">
         <i class="fas fa-pencil-alt"></i> Edit
       </button>
@@ -102,21 +101,11 @@
               <th>Amount (GHS)</th>
             </tr>
           </thead>
-          <tbody><!-- populated dynamically --></tbody>
+          <tbody><!-- populated dynamically: INCOME / EXPENDITURE / REPAYMENT groups + NET INCOME & DSR summary rows --></tbody>
         </table>
       </div>
 
-      <!-- Budget Summary -->
-      <div class="view-grid-two-columns inline-view-grid">
-        <div class="view-item inline-view-item">
-          <div class="view-label inline-label">Net Income:</div>
-          <div class="view-value inline-value" id="view-netIncome"></div>
-        </div>
-        <div class="view-item inline-view-item">
-          <div class="view-label inline-label">Debt Service Ratio:</div>
-          <div class="view-value inline-value" id="view-debtServiceRatio"></div>
-        </div>
-      </div>
+      <!-- Inline quick-stat removed entirely -->
     </div>
 
     <!-- Monthly Turnover Section -->
@@ -251,7 +240,6 @@
 
     <!-- Recommendations editors (hidden by default, shown by role/stage) -->
     <div class="view-details-section" style="margin-top:12px;">
-      <!-- Heading "Recommendations (Edit)" removed -->
       <div>
         <div class="view-details-category comment-editor" data-role="Credit Officer" data-stages="New,Assessment" style="display:none;">
           <h5>Credit Officer Recommendation</h5>
@@ -313,7 +301,6 @@
           <div class="signature-position">Branch Manager</div>
         </div>
       </div>
-      <!-- small print button removed -->
     </div>
 
     <!-- Footer actions -->
