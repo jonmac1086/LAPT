@@ -1,5 +1,4 @@
-// viewApplicationJS - View Application Modal JavaScript (updated to remove duplicate NET INCOME/DSR rows)
-console.log('viewApplicationJS loaded (scroll + edit changes)');
+console.log('viewApplicationJS loaded (net income moved into table)');
 
 let currentAppData = null;
 
@@ -128,9 +127,7 @@ function initViewApplicationModal(appData) {
   populateLoanHistoryReview(appData.loanHistory || []);
   populatePersonalBudgetReview(appData.personalBudget || []);
   populateMonthlyTurnoverReview(appData.monthlyTurnover || {});
-  safeSetText('view-netIncome', formatCurrency(appData.netIncome));
-  safeSetText('view-repaymentAmount', formatCurrency(appData.repaymentAmount));
-  safeSetText('view-debtServiceRatio', appData.debtServiceRatio || 'N/A');
+  // Note: Net Income / DSR are now restored into the personal-budget table; no inline quick-stat updates here.
 
   safeSetText('view-marginComment', appData.marginComment || 'No comment');
   safeSetText('view-repaymentComment', appData.repaymentComment || 'No comment');
@@ -408,10 +405,7 @@ function populatePersonalBudgetReview(personalBudget) {
   appendGroup('EXPENDITURE', groups.Expense);
   appendGroup('REPAYMENT', groups.Repayment);
 
-  // NET INCOME and DSR are displayed in the compact quick-stats (view-netIncome / view-debtServiceRatio)
-  // We intentionally DO NOT append extra NET INCOME / DSR rows to the table to avoid duplication.
-
-  // Also set the quick stat fields
+  // Restore NET INCOME and DSR rows into the table (single summary rows)
   let netIncomeVal = null;
   if (currentAppData && currentAppData.netIncome !== undefined && currentAppData.netIncome !== null) {
     netIncomeVal = currentAppData.netIncome;
@@ -421,19 +415,24 @@ function populatePersonalBudgetReview(personalBudget) {
     netIncomeVal = totalIncome - totalExpense;
   }
 
+  const totalRepayments = groups.Repayment.reduce((s, i) => s + (i.amount || 0), 0);
   let dsrVal = null;
   if (currentAppData && currentAppData.debtServiceRatio !== undefined && currentAppData.debtServiceRatio !== null) {
     dsrVal = currentAppData.debtServiceRatio;
   } else {
-    const totalRepayments = groups.Repayment.reduce((s, i) => s + (i.amount || 0), 0);
     if (netIncomeVal > 0) dsrVal = ((totalRepayments / netIncomeVal) * 100).toFixed(2) + '%';
     else if (totalRepayments > 0) dsrVal = 'N/A';
     else dsrVal = '0.00%';
   }
 
-  // Set the inline quick-fields
-  safeSetText('view-netIncome', formatCurrency(netIncomeVal));
-  safeSetText('view-debtServiceRatio', dsrVal);
+  // Append summary rows to the table (single-row summary)
+  const netRow = document.createElement('tr');
+  netRow.innerHTML = `<td style="text-align:right; font-weight:bold;">NET INCOME</td><td style="font-weight:bold;">${formatCurrency(netIncomeVal)}</td>`;
+  tbody.appendChild(netRow);
+
+  const dsrRow = document.createElement('tr');
+  dsrRow.innerHTML = `<td style="text-align:right; font-weight:bold;">Debt Service Ratio:</td><td style="font-weight:bold;">${escapeHtml(dsrVal.toString())}</td>`;
+  tbody.appendChild(dsrRow);
 }
 
 function populateMonthlyTurnoverReview(turnover) {
