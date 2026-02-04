@@ -14,9 +14,6 @@
   <link rel="stylesheet" href="viewApps.css">
   <link rel="stylesheet" href="ui-modals.css">
   <link rel="stylesheet" href="print.css">
-
-  
- 
 </head>
 <body>
   <!-- Login Page (shown by default) -->
@@ -203,45 +200,20 @@
           </div>
         </div>
         
-        <!-- User Management: Add User -->
+        <!-- User Management: Add User (now loaded from UserMgt.html) -->
         <div id="add-user" class="content-section">
-          <div class="section-header">
-            <h2><i class="fas fa-user-plus"></i> Add User</h2>
-          </div>
-          <div class="form-container">
-            <form id="add-user-form">
-              <div class="form-group">
-                <label class="form-label">Name *</label>
-                <input type="text" class="form-input" id="new-user-name" required>
-              </div>
-              <div class="form-group">
-                <label class="form-label">Level *</label>
-                <input type="number" class="form-input" id="new-user-level" required min="1">
-              </div>
-              <div class="form-group">
-                <label class="form-label">Role *</label>
-                <select class="form-input" id="new-user-role" required>
-                  <option value="">Select Role</option>
-                  <option value="Credit Sales Officer">Credit Sales Officer</option>
-                  <option value="Credit Analyst">Credit Analyst</option>
-                  <option value="AMLRO">AMLRO</option>
-                  <option value="Head of Credit">Head of Credit</option>
-                  <option value="Branch Manager/Approver">Branch Manager/Approver</option>
-                  <option value="Approver">Approver</option>
-                  <option value="Admin">Admin</option>
-                </select>
-              </div>
-              <div class="form-actions">
-                <button type="button" class="btn-secondary" onclick="showSection('users-list')">Cancel</button>
-                <button type="submit" class="btn-primary">Add User</button>
-              </div>
-            </form>
+          <div id="user-management-root" style="padding:16px;">
+            <!-- UserMgt.html will be loaded here when the section is shown -->
+            <div class="loading">User management module will load when you open this section.</div>
           </div>
         </div>
         
-        <!-- Users List -->
+        <!-- Users List (kept for compatibility; UserMgt renders its own list) -->
         <div id="users-list" class="content-section">
-          <!-- Users table structure -->
+          <!-- Placeholder — user management UI handles lists -->
+          <div style="padding:16px;">
+            <p>Open "Add User" to manage users (form + list).</p>
+          </div>
         </div>
       </div>
     </div>
@@ -272,10 +244,15 @@
     </div>
   </div>
 
-  <!-- Scripts -->
+  <!-- Loading & UI libraries -->
   <script src="Main.js"></script>
-   <script src="ui-modals.js"></script>
+  <script src="ui-modals.js"></script>
   <script src="api.js"></script>
+
+  <!-- Extracted user management -->
+  <script src="UserMgt.js"></script>
+
+  <!-- Other feature scripts -->
   <script src="newApps.js"></script>
   <script src="viewApps.js"></script>
   <script src="print.js"></script>
