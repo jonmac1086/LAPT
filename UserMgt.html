@@ -1,0 +1,86 @@
+<!-- UserMgt.html -->
+<div id="user-management" class="content-section">
+  <div class="section-header">
+    <h2><i class="fas fa-user-cog"></i> User Management</h2>
+    <div class="section-actions">
+      <button class="btn-outline" id="refresh-users-btn">
+        <i class="fas fa-sync-alt"></i> Refresh
+      </button>
+    </div>
+  </div>
+
+  <div class="form-container" style="padding:16px;">
+    <form id="add-user-form" class="user-form" autocomplete="off">
+      <div style="display:flex;gap:12px;flex-wrap:wrap;">
+        <div style="flex:1 1 260px;">
+          <label class="form-label">Name *</label>
+          <input type="text" class="form-input" id="new-user-name" placeholder="Full name" required>
+        </div>
+
+        <div style="flex:1 1 220px;">
+          <label class="form-label">Role *</label>
+          <select class="form-input" id="new-user-role" required>
+            <option value="">Select Role</option>
+            <option value="Admin">Admin</option>
+            <option value="Head of Credit">Head of Credit</option>
+            <option value="Credit Officer">Credit Officer</option>
+            <option value="AMLRO">AMLRO</option>
+            <option value="Branch Manager/Approver">Branch Manager/Approver</option>
+            <option value="Approver">Approver</option>
+          </select>
+        </div>
+
+        <div style="width:130px;">
+          <label class="form-label">Level *</label>
+          <input type="number" class="form-input" id="new-user-level" required min="1" max="5" readonly>
+        </div>
+
+        <div style="flex:0 0 240px; align-self:end; display:flex; gap:8px;">
+          <button type="button" class="btn-secondary" id="cancel-add-user">Cancel</button>
+          <button type="submit" class="btn-primary" id="submit-add-user">Add User</button>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <div style="padding: 0 16px 16px 16px;">
+    <h3 style="margin:6px 0 12px 0;">Existing Users</h3>
+    <div class="table-container">
+      <table class="applications-table" id="users-table" aria-live="polite">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Level</th>
+            <th>Role</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="users-list-body">
+          <tr><td colspan="4" class="loading">Loading users...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div style="padding: 16px;">
+    <h3>Stage & Status Access Matrix (by Level)</h3>
+    <div style="overflow-x:auto;">
+      <table class="view-table" id="access-matrix">
+        <thead>
+          <tr>
+            <th>Level</th>
+            <th>Applications Access</th>
+            <th>Application Stage(s)</th>
+            <th>Application Submit → Status Change</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- rows populated by JS according to the mapping provided -->
+        </tbody>
+      </table>
+    </div>
+    <p style="margin-top:8px;color:var(--gray-600);font-size:0.95rem;">
+      Note: Admin (Level 5) has access to all applications and can perform any action. Changes are enforced server‑side.
+    </p>
+  </div>
+</div>
