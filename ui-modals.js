@@ -1,4 +1,4 @@
-// ui-modals.js - Modernized modal & toast system
+// ui-modals.js - Modernized modal & toast system (fixed overlay visibility)
 // - Promise-based showConfirmModal/showSuccessModal
 // - showGlobalLoader / hideGlobalLoader (ref-counted)
 // - showToast with stacked toasts
@@ -104,8 +104,18 @@
   /* ---------- Modal stack implementation ---------- */
   const modalStack = [];
 
+  function updateModalRootActiveState() {
+    if (modalStack.length > 0) {
+      modalRoot.classList.add('active');
+      modalRoot.setAttribute('aria-hidden', 'false');
+    } else {
+      modalRoot.classList.remove('active');
+      modalRoot.setAttribute('aria-hidden', 'true');
+    }
+  }
+
   function renderModal({ title = '', body = '', actions = [], options = {} } = {}) {
-    // options: { width, ariaLabel, closeOnBackdrop=true, escapeCloses=true }
+    // options: { width, ariaLabel, closeOnBackdrop=true, escapeCloses=true, onClose }
     const id = 'ui-modal-' + Math.random().toString(36).slice(2,9);
     const modalWrapper = document.createElement('div');
     modalWrapper.className = 'ui-modal';
@@ -137,7 +147,7 @@
       if (a.autoFocus) setTimeout(() => btn.focus(), 30);
       btn.addEventListener('click', (ev) => {
         try { if (typeof a.onClick === 'function') a.onClick(ev); } catch (e) { console.error(e); }
-        if (a.closeOnClick !== false) close();
+        if (a.closeOnClick !== false) close(null);
       });
       actionsNode.appendChild(btn);
     });
@@ -166,7 +176,8 @@
       if (resolved) return;
       resolved = true;
       try {
-        modalRoot.removeChild(overlayItem);
+        // remove overlay from modalRoot
+        if (overlayItem.parentNode === modalRoot) modalRoot.removeChild(overlayItem);
         const idx = modalStack.indexOf(overlayItem);
         if (idx >= 0) modalStack.splice(idx, 1);
       } catch (e) {}
@@ -174,6 +185,8 @@
       try { document.body.style.overflow = ''; } catch(e){}
       if (typeof options.onClose === 'function') options.onClose(result);
       if (promiseResolve) promiseResolve(result);
+      // Update active state of modalRoot (hide overlay if stack empty)
+      updateModalRootActiveState();
     }
 
     // close on backdrop
@@ -191,7 +204,7 @@
     // focus trap
     releaseTrap = trapFocus(modalWrapper);
 
-    // When removed: cleanup listeners
+    // cleanup when removed
     const cleanupOnRemove = () => {
       document.removeEventListener('keydown', handleEsc);
       if (releaseTrap) releaseTrap();
@@ -200,8 +213,16 @@
     // push onto stack & display
     modalStack.push(overlayItem);
     modalRoot.appendChild(overlayItem);
+
+    // Ensure modalRoot visible by toggling 'active' class
+    updateModalRootActiveState();
+
+    // prevent body scroll while modal(s) open
     document.body.style.overflow = 'hidden';
-    setTimeout(() => modalWrapper.focus(), 40);
+
+    setTimeout(() => {
+      try { modalWrapper.focus(); } catch (e) {}
+    }, 40);
 
     // Promise for caller
     let promiseResolve;
@@ -223,7 +244,6 @@
       ],
       options: { closeOnBackdrop: true, escapeCloses: true }
     });
-    // Resolve when modal closes: since action buttons call close(), we just return modal.promise
     return modal.promise;
   }
 
@@ -232,8 +252,6 @@
     const confirmText = opts.confirmText || 'Yes';
     const cancelText = opts.cancelText || 'Cancel';
     const danger = !!opts.danger;
-    // Build modal
-    let resolveFn;
     const modal = renderModal({
       title,
       body: `<div style="white-space:pre-wrap;">${escapeHtml(message)}</div>`,
@@ -329,5 +347,5 @@
     showToast
   };
 
-  console.log('ui-modals.js (modern) loaded');
+  console.log('ui-modals.js (modern, overlay fix) loaded');
 })();
