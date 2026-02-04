@@ -1,6 +1,4 @@
-// viewApplicationJS - View Application Modal JavaScript (updated to use ApiService, modal-local loader support,
-// and to avoid google.script.run). Also removed the old trivial print implementation so print.js provides printing.
-
+// viewApplicationJS - View Application Modal JavaScript (updated to remove duplicate NET INCOME/DSR rows)
 console.log('viewApplicationJS loaded (scroll + edit changes)');
 
 let currentAppData = null;
@@ -410,7 +408,10 @@ function populatePersonalBudgetReview(personalBudget) {
   appendGroup('EXPENDITURE', groups.Expense);
   appendGroup('REPAYMENT', groups.Repayment);
 
-  // NET INCOME row
+  // NET INCOME and DSR are displayed in the compact quick-stats (view-netIncome / view-debtServiceRatio)
+  // We intentionally DO NOT append extra NET INCOME / DSR rows to the table to avoid duplication.
+
+  // Also set the quick stat fields
   let netIncomeVal = null;
   if (currentAppData && currentAppData.netIncome !== undefined && currentAppData.netIncome !== null) {
     netIncomeVal = currentAppData.netIncome;
@@ -419,11 +420,7 @@ function populatePersonalBudgetReview(personalBudget) {
     const totalExpense = groups.Expense.reduce((s, i) => s + (i.amount || 0), 0);
     netIncomeVal = totalIncome - totalExpense;
   }
-  const netRow = document.createElement('tr');
-  netRow.innerHTML = `<td style="text-align:right; font-weight:bold;">NET INCOME</td><td style="font-weight:bold;">${formatCurrency(netIncomeVal)}</td>`;
-  tbody.appendChild(netRow);
 
-  // Debt Service Ratio row
   let dsrVal = null;
   if (currentAppData && currentAppData.debtServiceRatio !== undefined && currentAppData.debtServiceRatio !== null) {
     dsrVal = currentAppData.debtServiceRatio;
@@ -433,11 +430,8 @@ function populatePersonalBudgetReview(personalBudget) {
     else if (totalRepayments > 0) dsrVal = 'N/A';
     else dsrVal = '0.00%';
   }
-  const dsrRow = document.createElement('tr');
-  dsrRow.innerHTML = `<td style="text-align:right; font-weight:bold;">Debt Service Ratio:</td><td style="font-weight:bold;">${escapeHtml(dsrVal.toString())}</td>`;
-  tbody.appendChild(dsrRow);
 
-  // Also set the quick stat fields
+  // Set the inline quick-fields
   safeSetText('view-netIncome', formatCurrency(netIncomeVal));
   safeSetText('view-debtServiceRatio', dsrVal);
 }
@@ -677,10 +671,10 @@ function escapeHtml(s) {
   });
 }
 
+// Expose functions
 window.initViewApplicationModal = initViewApplicationModal;
 window.closeViewApplicationModal = closeViewApplicationModal;
 window.viewApplication = viewApplication;
 window.openDocument = openDocument;
 window.saveStageComment = saveStageComment;
-// old trivial print implementation removed to allow print.js to provide full printing behavior
 window.populatePersonalBudgetReview = populatePersonalBudgetReview;
