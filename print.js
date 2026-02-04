@@ -1,18 +1,24 @@
-// print.js - robust new-window printable document with explicit page-breaks
-// - Validates/guards against empty content to avoid blank page
-// - Inlines minimal print CSS so content is visible even if external CSS is not loaded
-// - Inserts page-breaks after major sections (section-block / review-section / view-details-section)
-// - Waits for images/styles to settle before calling print
-// - Falls back with an error message if popup blocked or content missing
+// print.js - in-page print approach (no popups)
+// - Clones the viewApplicationModal into a print-only container in the same document
+// - Expands scrollable elements, converts inputs/selects/textareas to static values
+// - Injects print-only CSS to hide the rest of the page and enforce page-breaks
+// - Waits for images to load and calls window.print()
+// - Cleans up and restores original state after printing (afterprint + timeout fallback)
 
 (function () {
+  'use strict';
+
+  // ---- Helpers ----
+  function log(...args) { try { console.log('[print]', ...args); } catch(e) {} }
+
   function escapeHtml(s) {
     if (s === null || s === undefined) return '';
-    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
   }
 
-  function convertInteractiveToStatic(container) {
-    container.querySelectorAll('input').forEach(input => {
+  function convertInteractiveToStatic(root) {
+    // inputs
+    root.querySelectorAll('input').forEach(input => {
       try {
         const span = document.createElement('div');
         span.className = 'print-input-value';
@@ -20,16 +26,17 @@
         if (input.type === 'checkbox' || input.type === 'radio') {
           span.textContent = input.checked ? '✓' : '✕';
         } else if (input.type === 'file') {
-          const s = container.querySelector(`#${input.id}-name`);
-          span.textContent = (s && s.textContent) ? s.textContent : (input.value ? input.value.split('\\').pop() : 'Not uploaded');
+          const siblingName = root.querySelector(`#${input.id}-name`);
+          span.textContent = (siblingName && siblingName.textContent) ? siblingName.textContent : (input.value ? input.value.split('\\').pop() : 'Not uploaded');
         } else {
           span.textContent = input.value || input.placeholder || '';
         }
         input.parentNode && input.parentNode.replaceChild(span, input);
-      } catch (e) {}
+      } catch (e) { /* ignore */ }
     });
 
-    container.querySelectorAll('textarea').forEach(ta => {
+    // textareas
+    root.querySelectorAll('textarea').forEach(ta => {
       try {
         const div = document.createElement('div');
         div.className = 'print-textarea-value';
@@ -39,201 +46,124 @@
       } catch (e) {}
     });
 
-    container.querySelectorAll('select').forEach(sel => {
+    // selects
+    root.querySelectorAll('select').forEach(sel => {
       try {
         const div = document.createElement('div');
         div.className = 'print-select-value';
-        div.textContent = (sel.options && sel.selectedIndex >= 0) ? (sel.options[sel.selectedIndex].text || sel.value) : sel.value;
+        const opt = sel.options && sel.selectedIndex >= 0 ? sel.options[sel.selectedIndex].text || sel.value : sel.value;
+        div.textContent = opt || '';
         sel.parentNode && sel.parentNode.replaceChild(div, sel);
       } catch (e) {}
     });
 
-    // Remove inline event handlers
-    container.querySelectorAll('*').forEach(el => {
+    // Remove inline event handlers to be safe
+    root.querySelectorAll('*').forEach(el => {
       Array.from(el.attributes || []).forEach(attr => {
         if (/^on/i.test(attr.name)) el.removeAttribute(attr.name);
       });
     });
   }
 
-  function expandScrollableContainers(root) {
-    try {
-      root.querySelectorAll('*').forEach(el => {
-        try {
+  function expandScrollables(root) {
+    // Make overflow visible, remove max-height / height where possible
+    Array.from(root.querySelectorAll('*')).forEach(el => {
+      try {
+        const cs = window.getComputedStyle(el);
+        if (!cs) return;
+        if (/(auto|scroll)/.test(cs.overflow + cs.overflowY + cs.overflowX)) {
           el.style.overflow = 'visible';
           el.style.overflowY = 'visible';
           el.style.overflowX = 'visible';
-          el.style.maxHeight = 'none';
-          if (el.style.height && el.style.height !== 'auto') el.style.height = 'auto';
-        } catch (e) {}
+        }
+        if (cs.maxHeight && cs.maxHeight !== 'none') el.style.maxHeight = 'none';
+        if (cs.height && cs.height !== 'auto') el.style.height = 'auto';
+      } catch (e) {}
+    });
+
+    // Common classes explicitly
+    ['.modal-content', '.table-container-scroll', '.table-container', '.documents-container', '.upload-grid', '.review-section', '.view-details-section'].forEach(sel => {
+      root.querySelectorAll(sel).forEach(el => {
+        try { el.style.overflow = 'visible'; el.style.maxHeight = 'none'; el.style.height = 'auto'; } catch(e) {}
       });
-      ['.modal-content', '.table-container-scroll', '.table-container', '.documents-container', '.upload-grid', '.review-section', '.view-details-section'].forEach(sel => {
-        root.querySelectorAll(sel).forEach(el => {
-          try { el.style.overflow = 'visible'; el.style.maxHeight = 'none'; el.style.height = 'auto'; } catch(e) {}
-        });
-      });
-      root.querySelectorAll('table').forEach(tbl => {
-        try { tbl.style.tableLayout = 'auto'; tbl.style.width = '100%'; } catch(e) {}
-      });
-    } catch (e) {}
+    });
+
+    // Tables: allow natural height
+    root.querySelectorAll('table').forEach(t => {
+      try { t.style.tableLayout = 'auto'; t.style.width = '100%'; } catch(e) {}
+    });
   }
 
-  function insertPageBreaksAfterSections(root) {
-    // Insert an explicit page-break DIV after each major section to encourage clean page splits.
+  function insertPageBreaks(root) {
+    // Insert page break element after certain semantic blocks where appropriate
     const selectors = ['.section-block', '.review-section', '.view-details-section', '.documents-container', '.signatures-section'];
     selectors.forEach(sel => {
       Array.from(root.querySelectorAll(sel)).forEach(el => {
         try {
+          // Avoid adding duplicate breaks
+          const next = el.nextElementSibling;
+          if (next && next.classList && next.classList.contains('print-page-break')) return;
           const br = document.createElement('div');
-          br.className = 'page-break';
-          br.style.display = 'block';
+          br.className = 'print-page-break';
           br.style.pageBreakAfter = 'always';
           br.style.breakAfter = 'page';
-          // Insert only if not already last child or next is a page-break
-          if (el.nextSibling && !(el.nextSibling.className && el.nextSibling.className.indexOf('page-break') >= 0)) {
-            el.parentNode && el.parentNode.insertBefore(br, el.nextSibling);
-          } else if (!el.nextSibling) {
-            el.parentNode && el.parentNode.appendChild(br);
-          }
+          // insert after element
+          el.parentNode && el.parentNode.insertBefore(br, el.nextSibling);
         } catch (e) {}
       });
     });
   }
 
-  function serializeModalHtml(modalElement) {
-    // target the loan-application-modal container inside the modal if present (keeps header/footer consistent)
-    const target = (modalElement.querySelector && (modalElement.querySelector('.loan-application-modal') || modalElement.querySelector('.loan-application-modal'))) || modalElement;
-    if (!target) return '';
-
-    // clone node so we don't mutate UI
-    const clone = target.cloneNode(true);
-
-    // remove scripts from clone
-    clone.querySelectorAll('script').forEach(s => s.remove());
-
-    // convert interactive elements to static
-    convertInteractiveToStatic(clone);
-
-    // expand scrolls and heights
-    expandScrollableContainers(clone);
-
-    // insert explicit page-breaks
-    insertPageBreaksAfterSections(clone);
-
-    // ensure images will try loading (copy data-src)
-    clone.querySelectorAll('img').forEach(img => {
-      if (!img.src && img.getAttribute('data-src')) img.src = img.getAttribute('data-src');
-      img.removeAttribute('loading');
-      img.style.maxWidth = '100%';
-      img.style.height = 'auto';
-      img.style.display = 'block';
-    });
-
-    // remove UI-only elements that might still remain
-    clone.querySelectorAll('.close-button, .action-btn, .tab-navigation, .add-button, .delete-button, .modal-footer, .compact-actions, .btn, .view-button, .inline-loading').forEach(n => n.remove());
-
-    return clone.innerHTML || '';
-  }
-
-  function waitForImages(doc, timeout = 8000) {
+  function waitForImages(root, timeout = 8000) {
+    const imgs = Array.from(root.querySelectorAll('img'));
+    if (!imgs.length) return Promise.resolve();
     return new Promise(resolve => {
-      try {
-        const imgs = Array.from(doc.images || []);
-        if (!imgs.length) return resolve();
-        let remaining = imgs.length;
-        let done = false;
-        const maybeDone = () => { if (done) return; if (remaining <= 0) { done = true; resolve(); } };
-        imgs.forEach(img => {
-          if (img.complete && img.naturalWidth !== 0) { remaining--; maybeDone(); }
-          else {
-            const handler = () => { remaining--; cleanup(); maybeDone(); };
-            const cleanup = () => { img.removeEventListener('load', handler); img.removeEventListener('error', handler); };
-            img.addEventListener('load', handler);
-            img.addEventListener('error', handler);
-          }
-        });
-        setTimeout(() => { if (!done) { done = true; resolve(); } }, timeout);
-      } catch (e) { resolve(); }
+      let remaining = imgs.length;
+      let finished = false;
+      const check = () => { if (finished) return; if (remaining <= 0) { finished = true; resolve(); } };
+      imgs.forEach(img => {
+        if (img.complete && img.naturalWidth !== 0) { remaining--; check(); }
+        else {
+          const ondone = () => { remaining--; cleanup(); check(); };
+          const cleanup = () => { img.removeEventListener('load', ondone); img.removeEventListener('error', ondone); };
+          img.addEventListener('load', ondone);
+          img.addEventListener('error', ondone);
+        }
+      });
+      setTimeout(() => { if (!finished) { finished = true; resolve(); } }, timeout);
     });
   }
 
-  function buildPrintDocument(serializedHtml, titleText) {
-    // Inline minimal print CSS to ensure the page shows even if external CSS doesn't load
-    const minimalPrintCss = `
-      <style>
-        html,body { margin:0; padding:0; font-family: Inter, "Segoe UI", Roboto, Arial, sans-serif; color:#111; background:#fff; }
-        .print-page { width:210mm; margin:0 auto; padding:12mm 10mm; box-sizing:border-box; background:#fff; color:#111; }
-        h2,h3,h4 { color:#111; margin:0 0 6px 0; }
-        .section-block, .review-section, .view-details-section { margin-bottom:8px; }
-        table { width:100%; border-collapse:collapse; margin-bottom:8px; font-size:12px; }
-        th, td { padding:6px; border:1px solid #e6e6e6; text-align:left; vertical-align:top; }
-        .inline-value, .print-input-value, .print-textarea-value { white-space: pre-wrap; }
-        .page-break { display:block; page-break-after:always; break-after:page; height:1px; }
-        .print-footer { font-size:10px; color:#666; margin-top:12px; border-top:1px dashed #e6e6e6; padding-top:8px; }
-        @media print {
-          .page-break { display:block; page-break-after:always; }
-          .print-page { padding:10mm !important; }
-          thead { display:table-header-group; }
-          tfoot { display:table-footer-group; }
-          tr { page-break-inside:avoid; page-break-after:auto; }
-        }
-      </style>
-    `;
-
-    const headerHtml = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><div style="font-size:11px;color:#444;">${new Date().toLocaleString()}</div><div style="font-weight:700;color:#0b66c2;">${escapeHtml(titleText || 'Loan Application')}</div></div>`;
-
-    return `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <title>${escapeHtml(titleText || 'Loan Application')}</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  ${minimalPrintCss}
-</head>
-<body>
-  <div class="print-page">
-    ${headerHtml}
-    <div id="print-content">${serializedHtml}</div>
-    <div class="print-footer">Source: ${escapeHtml(location.href)}</div>
-  </div>
-
-  <script>
-    (function(){
-      function waitImages(timeout, cb) {
-        try {
-          var imgs = Array.from(document.images || []);
-          if (!imgs.length) return cb();
-          var remaining = imgs.length, done=false;
-          function check(){ if (done) return; if (remaining<=0) { done=true; cb(); } }
-          imgs.forEach(function(img){
-            if (img.complete && img.naturalWidth!==0) { remaining--; check(); }
-            else {
-              var ondone = function(){ remaining--; cleanup(); check(); };
-              var cleanup = function(){ img.removeEventListener('load', ondone); img.removeEventListener('error', ondone); };
-              img.addEventListener('load', ondone);
-              img.addEventListener('error', ondone);
-            }
-          });
-          setTimeout(function(){ if (!done) { done=true; cb(); } }, timeout||8000);
-        } catch(e){ cb(); }
+  function createPrintStyle() {
+    const style = document.createElement('style');
+    style.id = 'print-temp-style';
+    style.type = 'text/css';
+    style.textContent = `
+      /* Hide everything except the print wrapper during printing */
+      @media print {
+        body * { visibility: hidden !important; }
+        #print-wrapper, #print-wrapper * { visibility: visible !important; }
+        #print-wrapper { position: absolute !important; left: 0 !important; top: 0 !important; width: 210mm !important; box-sizing: border-box; padding: 10mm !important; background: #fff; color: #111; }
+        /* ensure scrollers don't stay hidden/truncated */
+        .modal-content, .table-container-scroll, .table-container { overflow: visible !important; max-height: none !important; height: auto !important; }
+        /* tables: keep headers on each page */
+        table { page-break-inside: auto !important; width: 100% !important; border-collapse: collapse !important; }
+        thead { display: table-header-group !important; }
+        tfoot { display: table-footer-group !important; }
+        tr { page-break-inside: avoid !important; page-break-after: auto !important; }
+        /* page-break helper */
+        .print-page-break { display:block; page-break-after:always; break-after:page; }
+        img { max-width:100% !important; height:auto !important; display:block !important; }
       }
-
-      document.addEventListener('DOMContentLoaded', function(){
-        waitImages(8000, function(){
-          setTimeout(function(){
-            try { window.focus(); window.print(); } catch(e){ console.error(e); }
-            // try to close after a short delay (some browsers block)
-            setTimeout(function(){ try{ window.close(); }catch(e){} }, 1500);
-          }, 160);
-        });
-      });
-    })();
-  </script>
-</body>
-</html>`;
+      /* On screen, keep it unobtrusive */
+      #print-wrapper { background: #fff; color: #111; }
+    `;
+    document.head.appendChild(style);
+    return style;
   }
 
-  async function printApplicationNewWindow(options = {}) {
+  // ---- Core print flow (in-place clone) ----
+  async function printApplicationDetailsInPlace(options = {}) {
     const force = !!options.force;
     const showWarning = options.showWarning !== false;
 
@@ -243,11 +173,11 @@
         throw new Error('Please open an application first.');
       }
 
-      // confirm if not approved (retain original UX)
+      // Confirmation for non-approved still optional
       if (!force && showWarning) {
-        const statusEl = document.getElementById('applicationStatusBadge');
-        const statusText = statusEl ? (statusEl.textContent || '').toUpperCase() : '';
-        if (!statusText.includes('APPROVED')) {
+        const badge = document.getElementById('applicationStatusBadge');
+        const text = badge ? (badge.textContent || '').toUpperCase() : '';
+        if (!text.includes('APPROVED')) {
           const ok = (typeof showConfirmModal === 'function')
             ? await showConfirmModal('This application is not marked as APPROVED. Print anyway?', { title:'Confirm Print', confirmText:'Print Anyway', cancelText:'Cancel' })
             : confirm('This application is not marked as APPROVED. Print anyway?');
@@ -255,69 +185,131 @@
         }
       }
 
-      const serialized = serializeAndPrepare(modal);
-      if (!serialized || !serialized.trim()) {
-        if (typeof showToast === 'function') showToast('Nothing to print (modal appears empty).', 'error');
-        else alert('Nothing to print (modal appears empty).');
+      // Build print clone (do not mutate original)
+      const cloneRoot = modal.cloneNode(true);
+      // find the inner loan-application-modal to keep layout consistent when available
+      const clonedModal = cloneRoot.querySelector('.loan-application-modal') || cloneRoot;
+
+      // remove script tags in clone
+      cloneRoot.querySelectorAll('script').forEach(s => s.remove());
+
+      // convert interactive controls to static in the clone
+      convertInteractiveToStatic(cloneRoot);
+
+      // expand scrollable areas in clone
+      expandScrollables(cloneRoot);
+
+      // add explicit page breaks (helps split long document)
+      insertPageBreaks(cloneRoot);
+
+      // ensure images load (copy data-src -> src if used)
+      cloneRoot.querySelectorAll('img').forEach(img => {
+        if (!img.src && img.getAttribute('data-src')) img.src = img.getAttribute('data-src');
+        img.removeAttribute('loading');
+        img.style.maxWidth = '100%';
+        img.style.height = 'auto';
+        img.style.display = 'block';
+      });
+
+      // Create the print wrapper and append clone content
+      const wrapper = document.createElement('div');
+      wrapper.id = 'print-wrapper';
+      wrapper.setAttribute('aria-hidden', 'false');
+      // use cloned modal's inner HTML (keeps styles applied to loan-application-modal)
+      // Prefer the loan-application-modal section only so header/footer of page not duplicated
+      const contentNode = cloneRoot.querySelector('.loan-application-modal') || cloneRoot;
+      wrapper.appendChild(contentNode);
+
+      // Insert print style and wrapper into DOM
+      const printStyle = createPrintStyle();
+      document.body.appendChild(wrapper);
+
+      // Wait for images inside wrapper to load
+      await waitForImages(wrapper, 7000);
+
+      // Small settle for layout reflow
+      await new Promise(res => setTimeout(res, 160));
+
+      // Preserve scroll position so we can restore after print
+      const prevScroll = { x: window.scrollX || 0, y: window.scrollY || 0 };
+
+      // Setup cleanup function to remove wrapper and style and restore state
+      let cleaned = false;
+      function cleanup() {
+        if (cleaned) return;
+        cleaned = true;
+        try { const pw = document.getElementById('print-wrapper'); if (pw && pw.parentNode) pw.parentNode.removeChild(pw); } catch(e) {}
+        try { const ps = document.getElementById('print-temp-style'); if (ps && ps.parentNode) ps.parentNode.removeChild(ps); } catch(e) {}
+        try { if (printStyle && printStyle.parentNode) printStyle.parentNode.removeChild(printStyle); } catch(e) {}
+        try { window.scrollTo(prevScroll.x, prevScroll.y); } catch(e) {}
+        // reinitialize print bindings if necessary
+        try { if (typeof initPrint === 'function') initPrint(); } catch(e) {}
+      }
+
+      // Ensure afterprint cleanup
+      function onAfterPrint() {
+        cleanup();
+        try { window.removeEventListener('afterprint', onAfterPrint); } catch(e) {}
+      }
+      window.addEventListener('afterprint', onAfterPrint);
+
+      // Call print
+      try {
+        window.print();
+      } catch (e) {
+        // If print() fails synchronously, still cleanup after a short delay
+        log('window.print error', e);
+        setTimeout(cleanup, 500);
         return;
       }
 
-      // open blank popup
-      const w = window.open('', '_blank', 'noopener,noreferrer');
-      if (!w) {
-        if (typeof showToast === 'function') showToast('Popup blocked. Allow popups for printing.', 'error');
-        else alert('Popup blocked. Please allow popups for this site to print.');
-        return;
-      }
-
-      // build html and write (title uses applicationNumber where possible)
-      const titleText = (document.getElementById('applicationNumber')?.textContent || document.getElementById('applicationNumber')?.innerText || document.getElementById('application-number')?.textContent || 'Loan Application').trim();
-      const docHtml = buildPrintDocument(serialized, titleText);
-      w.document.open();
-      w.document.write(docHtml);
-      w.document.close();
-
-      // focus new window
-      try { w.focus(); } catch(e) {}
-
-      // we rely on the new window's script to wait for images and call print
-      // Optionally, additional monitoring could be added here
+      // Fallback: if afterprint doesn't fire, cleanup after timeout
+      setTimeout(cleanup, 3000);
 
     } catch (err) {
-      console.error('Print error:', err);
+      log('print error', err);
       if (typeof showToast === 'function') showToast('Print failed: ' + (err && err.message ? err.message : err), 'error');
       else alert('Print failed: ' + (err && err.message ? err.message : err));
     }
   }
 
-  // Helper wrapper to serialize modal after processing
-  function serializeAndPrepare(modalEl) {
-    try {
-      const html = serializeModalHtml(modalEl);
-      return html;
-    } catch (e) {
-      console.error('serializeAndPrepare error', e);
-      return '';
+  // Public wrappers
+  function printApplicationDetails(options = {}) {
+    // prefer in-place printing (no popups)
+    return printApplicationDetailsInPlace(options);
+  }
+  function quickPrint() {
+    return printApplicationDetailsInPlace({ force: true, showWarning: false });
+  }
+  function exportApplicationDetails() {
+    // same as print - user can choose Save as PDF in dialog
+    return printApplicationDetailsInPlace({ force: true, showWarning: false });
+  }
+
+  // Rebind UI buttons
+  function initPrintBindings() {
+    const printBtn = document.getElementById('btn-print');
+    if (printBtn) {
+      printBtn.removeAttribute('onclick');
+      printBtn.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); printApplicationDetails(); });
+    }
+    const exportBtn = document.getElementById('btn-export');
+    if (exportBtn) {
+      exportBtn.removeAttribute('onclick');
+      exportBtn.addEventListener('click', (e) => { e.stopPropagation(); e.preventDefault(); exportApplicationDetails(); });
     }
   }
 
-  // Expose functions
-  window.printApplicationDetails = printApplicationNewWindow;
-  window.exportApplicationDetails = function() { printApplicationNewWindow({ force: true, showWarning: false }); };
-  window.quickPrint = function() { printApplicationNewWindow({ force: true, showWarning: false }); };
-
-  // Bind buttons on load
-  function initPrintBindings() {
-    const printBtn = document.getElementById('btn-print');
-    if (printBtn) printBtn.onclick = () => printApplicationNewWindow();
-    const exportBtn = document.getElementById('btn-export');
-    if (exportBtn) exportBtn.onclick = () => window.exportApplicationDetails();
-  }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initPrintBindings);
   else initPrintBindings();
 
-  // expose minimal helpers for debug if needed
-  window.__print_helpers = { convertInteractiveToStatic, expandScrollableContainers, insertPageBreaksAfterSections, serializeModalHtml };
+  // Expose globals
+  window.printApplicationDetails = printApplicationDetails;
+  window.exportApplicationDetails = exportApplicationDetails;
+  window.quickPrint = quickPrint;
 
-  console.log('print.js (robust new-window) loaded');
+  // Small debug export
+  window.__print_debug = { convertInteractiveToStatic, expandScrollables, insertPageBreaks };
+
+  log('print.js (in-place) loaded');
 })();
