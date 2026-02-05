@@ -241,23 +241,7 @@ function showEditorForRole(roleName) {
   });
 }
 
-// Show editors that match both role and stage (used on modal init)
-function showRelevantCommentEditors(userRole, stage) {
-  hideAllRoleEditors();
-  if (!userRole) return;
-  const roleLower = userRole.toString().trim().toLowerCase();
-  const stageLower = (stage || '').toString().trim().toLowerCase();
-  document.querySelectorAll('.comment-editor').forEach(el => {
-    const roles = (el.dataset.role || '').split(',').map(r => r.trim().toLowerCase());
-    const stages = (el.dataset.stages || '').split(',').map(s => s.trim().toLowerCase());
-    const roleMatch = roles.includes(roleLower);
-    const stageMatch = stages.length === 0 || stages.some(s => s === stageLower);
-    if (roleMatch && stageMatch) {
-      el.style.display = 'block';
-    }
-  });
-}
-
+showRelevantCommentEditors
 async function saveStageComment(isRevert, explicitAction) {
   try {
     if (!currentAppData || !currentAppData.appNumber) {
