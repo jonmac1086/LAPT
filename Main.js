@@ -524,7 +524,7 @@ window.loadModalContentIfNeeded = loadModalContentIfNeeded;
 /* ==========================================================================
    Robust lazy-loader for User Management (loads HTML + JS on demand)
    ========================================================================== */
-// Robust lazy-loader for UserMgt (replace previous implementation)
+// Replace existing loadUserMgtSection with this improved version
 async function loadUserMgtSection() {
   const container = document.getElementById('user-management-root');
   if (!container) {
@@ -532,18 +532,29 @@ async function loadUserMgtSection() {
     return;
   }
 
-  // If already loaded once, just call initializer if present
+  // If already loaded once, just call initializer if present and make sure section is visible
   if (container.getAttribute('data-loaded') === '1') {
-    console.log('UserMgt already loaded — initializing');
+    console.log('UserMgt already loaded — initializing and showing section');
     if (typeof window.initUserMgt === 'function') {
       try { await window.initUserMgt(); } catch (e) { console.warn('initUserMgt error', e); }
-    } else {
-      console.warn('initUserMgt not defined although HTML marked loaded');
     }
+    // Ensure the section is active/visible
+    const addUserSection = document.getElementById('add-user');
+    if (addUserSection && !addUserSection.classList.contains('active')) {
+      document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
+      addUserSection.classList.add('active');
+    }
+    // Ensure form populated
+    if (typeof window.refreshUsersList === 'function') {
+      try { await window.refreshUsersList(); } catch (e) { console.warn('refreshUsersList error', e); }
+    }
+    // focus the name field if present
+    const nameInput = document.getElementById('new-user-name');
+    if (nameInput) nameInput.focus();
     return;
   }
 
-  // Show placeholder
+  // Show placeholder while fetching
   container.innerHTML = '<div class="um-loading-placeholder" style="padding:16px">Loading user management module…</div>';
 
   try {
@@ -551,6 +562,8 @@ async function loadUserMgtSection() {
     const resp = await fetch('UserMgt.html', { cache: 'no-store' });
     if (!resp.ok) throw new Error('Failed to fetch UserMgt.html: HTTP ' + resp.status);
     const html = await resp.text();
+
+    // Inject HTML and mark loaded
     container.innerHTML = html;
     container.setAttribute('data-loaded', '1');
     console.log('UserMgt.html injected');
@@ -570,8 +583,8 @@ async function loadUserMgtSection() {
       console.log('UserMgt.js already loaded');
     }
 
-    // Wait for initUserMgt to be available (small timeout loop)
-    const waitForInit = async (timeout = 2000) => {
+    // Wait for initUserMgt to be available (short loop)
+    const waitForInit = async (timeout = 3000) => {
       const start = Date.now();
       while (Date.now() - start < timeout) {
         if (typeof window.initUserMgt === 'function') return true;
@@ -591,6 +604,24 @@ async function loadUserMgtSection() {
         console.warn('initUserMgt threw an error', e);
       }
     }
+
+    // Ensure the add-user section is visible
+    const addUserSection = document.getElementById('add-user');
+    if (addUserSection && !addUserSection.classList.contains('active')) {
+      document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
+      addUserSection.classList.add('active');
+    }
+
+    // Make sure container isn't inadvertently hidden by inline styles
+    container.style.display = '';
+
+    // Refresh the users list and focus input
+    if (typeof window.refreshUsersList === 'function') {
+      try { await window.refreshUsersList(); } catch (e) { console.warn('refreshUsersList error', e); }
+    }
+    const nameInput = document.getElementById('new-user-name');
+    if (nameInput) nameInput.focus();
+
   } catch (err) {
     console.error('loadUserMgtSection error:', err);
     container.innerHTML = `<div class="error" style="padding:16px;color:#b91c1c;">Failed to load user management UI: ${escapeHtml(err.message || err)}</div>`;
@@ -915,4 +946,5 @@ window.refreshApplications = refreshApplications;
 /* ==========================================================================
    End of Main.js
    ========================================================================== */
+
 
