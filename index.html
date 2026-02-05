@@ -43,7 +43,6 @@
 
   <!-- Dashboard Content (hidden until logged in) -->
   <div class="dashboard-content">
-    <!-- Original dashboard content goes here -->
     <div class="top-menu">
       <div class="menu-left">
         <button class="add-app-btn" onclick="showNewApplicationModal()">
@@ -200,17 +199,15 @@
           </div>
         </div>
         
-        <!-- User Management: Add User (now loaded from UserMgt.html) -->
+        <!-- User Management: Add User (loaded on-demand) -->
         <div id="add-user" class="content-section">
           <div id="user-management-root" style="padding:16px;">
-            <!-- UserMgt.html will be loaded here when the section is shown -->
             <div class="loading">User management module will load when you open this section.</div>
           </div>
         </div>
         
-        <!-- Users List (kept for compatibility; UserMgt renders its own list) -->
+        <!-- Users List (compat placeholder) -->
         <div id="users-list" class="content-section">
-          <!-- Placeholder — user management UI handles lists -->
           <div style="padding:16px;">
             <p>Open "Add User" to manage users (form + list).</p>
           </div>
@@ -224,11 +221,6 @@
       <p>Processing...</p>
     </div>
 
-    <!-- Success Modal -->
-    <div id="success-modal" class="modal-overlay">
-      <!-- Success modal content -->
-    </div>
-
 <!-- New Application Modal -->
 <div id="newApplicationModal" class="modal">
   <div class="modal-content compact-modal" id="newApplicationModalContent">
@@ -239,18 +231,21 @@
     <!-- View Application Modal -->
     <div id="viewApplicationModal" class="modal">
       <div class="modal-content large-modal">
-        <!-- PASTE viewApps.html CONTENT HERE DIRECTLY -->
+        <!-- The view modal HTML will be loaded into this container when needed -->
       </div>
     </div>
   </div>
 
   <!-- Loading & UI libraries -->
-  <script src="Main.js"></script>
   <script src="ui-modals.js"></script>
   <script src="api.js"></script>
 
-  <!-- Extracted user management -->
-  <script src="UserMgt.js"></script>
+  <!-- Core app script (Main) -->
+  <script src="Main.js"></script>
+
+  <!-- User management module (loaded on demand by Main.js) -->
+  <!-- If you prefer eager load, uncomment the next line -->
+  <!-- <script src="UserMgt.js"></script> -->
 
   <!-- Other feature scripts -->
   <script src="newApps.js"></script>
