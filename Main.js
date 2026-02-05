@@ -522,6 +522,62 @@ window.loadModalContent = loadModalContent;
 window.loadModalContentIfNeeded = loadModalContentIfNeeded;
 
 /* ==========================================================================
+   Robust lazy-loader for User Management (loads HTML + JS on demand)
+   ========================================================================== */
+async function loadUserMgtSection() {
+  const container = document.getElementById('user-management-root');
+  if (!container) {
+    console.warn('User management container not found');
+    return;
+  }
+
+  // If already loaded, re-init
+  if (container.getAttribute('data-loaded') === '1') {
+    if (typeof window.initUserMgt === 'function') {
+      try { await window.initUserMgt(); } catch (e) { console.warn('initUserMgt error', e); }
+    }
+    return;
+  }
+
+  // Show a minimal loading placeholder while fetching
+  const placeholder = document.createElement('div');
+  placeholder.className = 'um-loading-placeholder';
+  placeholder.innerHTML = '<div style="padding:16px">Loading user management module…</div>';
+  container.replaceChildren(placeholder);
+
+  try {
+    // 1) Load HTML fragment
+    const resp = await fetch('UserMgt.html', { cache: 'no-store' });
+    if (!resp.ok) throw new Error('Failed to fetch UserMgt.html: ' + resp.status);
+    const html = await resp.text();
+    container.innerHTML = html;
+    container.setAttribute('data-loaded', '1');
+
+    // 2) Ensure UserMgt.js is loaded (avoid double-loading)
+    if (!window.__userMgt_script_loaded) {
+      await new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = 'UserMgt.js';
+        script.async = false; // preserve execution order
+        script.onload = () => { window.__userMgt_script_loaded = true; resolve(); };
+        script.onerror = () => reject(new Error('Failed to load UserMgt.js'));
+        document.head.appendChild(script);
+      });
+    }
+
+    // 3) Initialize the module if available
+    if (typeof window.initUserMgt === 'function') {
+      try { await window.initUserMgt(); } catch (e) { console.warn('initUserMgt error after load', e); }
+    } else {
+      console.warn('initUserMgt not defined after loading UserMgt.js');
+    }
+  } catch (err) {
+    console.error('loadUserMgtSection error', err);
+    container.innerHTML = `<div class="error" style="padding:16px;color:#b91c1c;">Failed to load user management UI: ${escapeHtml(err.message || err)}</div>`;
+  }
+}
+
+/* ==========================================================================
    View modal flow
    ========================================================================== */
 async function openViewApplicationModal(appData) {
@@ -759,12 +815,6 @@ async function initializeAndRefreshTables() {
     }
   }, 60000);
 }
-
-/* ==========================================================================
-   User management delegation (UserMgt.js now provides loadUserMgtSection / initUserMgt)
-   ========================================================================== */
-// Main.js will call window.loadUserMgtSection when showing the add-user section.
-// See UserMgt.js for the full implementation.
 
 /* ==========================================================================
    Notifications (browser) & visibility handling
