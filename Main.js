@@ -524,59 +524,78 @@ window.loadModalContentIfNeeded = loadModalContentIfNeeded;
 /* ==========================================================================
    Robust lazy-loader for User Management (loads HTML + JS on demand)
    ========================================================================== */
+// Robust lazy-loader for UserMgt (replace previous implementation)
 async function loadUserMgtSection() {
   const container = document.getElementById('user-management-root');
   if (!container) {
-    console.warn('User management container not found');
+    console.warn('User management container (#user-management-root) not found in DOM');
     return;
   }
 
-  // If already loaded, re-init
+  // If already loaded once, just call initializer if present
   if (container.getAttribute('data-loaded') === '1') {
+    console.log('UserMgt already loaded — initializing');
     if (typeof window.initUserMgt === 'function') {
       try { await window.initUserMgt(); } catch (e) { console.warn('initUserMgt error', e); }
+    } else {
+      console.warn('initUserMgt not defined although HTML marked loaded');
     }
     return;
   }
 
-  // Show a minimal loading placeholder while fetching
-  const placeholder = document.createElement('div');
-  placeholder.className = 'um-loading-placeholder';
-  placeholder.innerHTML = '<div style="padding:16px">Loading user management module…</div>';
-  container.replaceChildren(placeholder);
+  // Show placeholder
+  container.innerHTML = '<div class="um-loading-placeholder" style="padding:16px">Loading user management module…</div>';
 
   try {
-    // 1) Load HTML fragment
+    console.log('Fetching UserMgt.html...');
     const resp = await fetch('UserMgt.html', { cache: 'no-store' });
-    if (!resp.ok) throw new Error('Failed to fetch UserMgt.html: ' + resp.status);
+    if (!resp.ok) throw new Error('Failed to fetch UserMgt.html: HTTP ' + resp.status);
     const html = await resp.text();
     container.innerHTML = html;
     container.setAttribute('data-loaded', '1');
+    console.log('UserMgt.html injected');
 
-    // 2) Ensure UserMgt.js is loaded (avoid double-loading)
+    // Load UserMgt.js if not already loaded
     if (!window.__userMgt_script_loaded) {
+      console.log('Loading UserMgt.js...');
       await new Promise((resolve, reject) => {
-        const script = document.createElement('script');
-        script.src = 'UserMgt.js';
-        script.async = false; // preserve execution order
-        script.onload = () => { window.__userMgt_script_loaded = true; resolve(); };
-        script.onerror = () => reject(new Error('Failed to load UserMgt.js'));
-        document.head.appendChild(script);
+        const s = document.createElement('script');
+        s.src = 'UserMgt.js';
+        s.async = false;
+        s.onload = () => { window.__userMgt_script_loaded = true; console.log('UserMgt.js loaded'); resolve(); };
+        s.onerror = (ev) => reject(new Error('Failed to load UserMgt.js'));
+        document.head.appendChild(s);
       });
+    } else {
+      console.log('UserMgt.js already loaded');
     }
 
-    // 3) Initialize the module if available
-    if (typeof window.initUserMgt === 'function') {
-      try { await window.initUserMgt(); } catch (e) { console.warn('initUserMgt error after load', e); }
-    } else {
+    // Wait for initUserMgt to be available (small timeout loop)
+    const waitForInit = async (timeout = 2000) => {
+      const start = Date.now();
+      while (Date.now() - start < timeout) {
+        if (typeof window.initUserMgt === 'function') return true;
+        await new Promise(r => setTimeout(r, 50));
+      }
+      return false;
+    };
+
+    const ready = await waitForInit(3000);
+    if (!ready) {
       console.warn('initUserMgt not defined after loading UserMgt.js');
+    } else {
+      try {
+        await window.initUserMgt();
+        console.log('initUserMgt executed');
+      } catch (e) {
+        console.warn('initUserMgt threw an error', e);
+      }
     }
   } catch (err) {
-    console.error('loadUserMgtSection error', err);
+    console.error('loadUserMgtSection error:', err);
     container.innerHTML = `<div class="error" style="padding:16px;color:#b91c1c;">Failed to load user management UI: ${escapeHtml(err.message || err)}</div>`;
   }
 }
-
 /* ==========================================================================
    View modal flow
    ========================================================================== */
@@ -896,3 +915,4 @@ window.refreshApplications = refreshApplications;
 /* ==========================================================================
    End of Main.js
    ========================================================================== */
+
