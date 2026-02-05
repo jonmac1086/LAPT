@@ -266,28 +266,47 @@ function showEditorForRole(roleName) {
   });
 }
 
-// Improved showRelevantCommentEditors(role, stage)
-// - tolerant: case-insensitive, trims, supports multiple roles/stages, logs helpful info when none shown
-function showRelevantCommentEditors(userRole, stage) {
+// Replace existing showRelevantCommentEditors with this function
+function showRelevantCommentEditors(roleOrPerms, stage) {
+  // roleOrPerms can be either:
+  // - a permission object returned from the server { role: 'Credit Officer', level: 1, ... }
+  // - or a plain role string like 'Credit Officer'
+  let role = '';
+  if (!roleOrPerms) {
+    role = (localStorage.getItem('userRole') || '').toString().trim();
+  } else if (typeof roleOrPerms === 'string') {
+    role = roleOrPerms.trim();
+  } else if (typeof roleOrPerms === 'object' && roleOrPerms.role) {
+    role = roleOrPerms.role.toString().trim();
+  } else {
+    role = (localStorage.getItem('userRole') || '').toString().trim();
+  }
+
   hideAllRoleEditors();
-  if (!userRole) {
-    console.warn('showRelevantCommentEditors: no role provided');
+
+  if (!role) {
+    console.warn('showRelevantCommentEditors: no role available (server and local fallback missing)');
     return;
   }
-  const roleLower = userRole.toString().trim().toLowerCase();
+
+  const roleLower = role.toLowerCase();
   const stageLower = (stage || '').toString().trim().toLowerCase();
 
   const editors = Array.from(document.querySelectorAll('.comment-editor'));
   if (!editors.length) {
-    console.warn('showRelevantCommentEditors: no .comment-editor elements found');
+    console.warn('showRelevantCommentEditors: no .comment-editor elements in DOM');
     return;
   }
 
   let shown = 0;
+
   editors.forEach(el => {
     try {
-      const roles = (el.dataset.role || '').split(',').map(r => r.trim().toLowerCase()).filter(Boolean);
-      const stages = (el.dataset.stages || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+      const rolesAttr = (el.dataset.role || '').toString();
+      const stagesAttr = (el.dataset.stages || '').toString();
+
+      const roles = rolesAttr.split(',').map(r => r.trim().toLowerCase()).filter(Boolean);
+      const stages = stagesAttr.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 
       const roleMatch = roles.length === 0 || roles.includes(roleLower) || roles.includes('all') || roles.includes('*');
       const stageMatch = stages.length === 0 || stages.includes(stageLower) || stages.includes('all') || stages.includes('*');
@@ -299,16 +318,18 @@ function showRelevantCommentEditors(userRole, stage) {
         el.style.display = 'none';
       }
     } catch (e) {
-      console.warn('Error processing comment-editor element', el, e);
+      console.warn('showRelevantCommentEditors: error evaluating element', el, e);
+      el.style.display = 'none';
     }
   });
 
   if (shown === 0) {
-    console.info(`No comment editors shown for role="${roleLower}" stage="${stageLower}". Check data-role/data-stages on elements:`);
-    editors.forEach((el, idx) => console.info(`#${idx+1}`, { role: el.dataset.role, stages: el.dataset.stages, display: getComputedStyle(el).display }));
+    console.info(`showRelevantCommentEditors: no editors shown for role="${role}" stage="${stage}". Check data-role/data-stages attributes:`);
+    editors.forEach((el, idx) => {
+      console.info(`#${idx+1}`, { role: el.dataset.role, stages: el.dataset.stages, visible: getComputedStyle(el).display });
+    });
   }
 }
-
 // updated saveStageComment to use ApiService and server-side permissions enforcement
 async function saveStageComment(isRevert, explicitAction) {
   if (!currentAppData || !currentAppData.appNumber) {
