@@ -1,25 +1,12 @@
-console.log('viewApplicationJS loaded (net income moved into table)');
+// viewApplicationJS - View Application Modal JavaScript (updated)
+// - Restores NET INCOME into table
+// - Uses server permissions (get_user_permissions) when available to control editor visibility and actions
+// - Improved, tolerant showRelevantCommentEditors to avoid accidental exclusions
+
+console.log('viewApplicationJS loaded (net income moved into table + perms)');
 
 let currentAppData = null;
-let currentUserPermissions = null;
-
-// Fetch user permissions from server (via new API)
-async function fetchUserPermissions(userName) {
-  try {
-    if (!userName) return null;
-    // Use generic apiService.request action - ensure server has case 'get_user_permissions'
-    const resp = await window.apiService.request('get_user_permissions', { userName: userName }, { showLoading: false });
-    if (resp && resp.success) {
-      return resp.data || null;
-    } else {
-      console.warn('get_user_permissions returned:', resp);
-      return null;
-    }
-  } catch (err) {
-    console.error('fetchUserPermissions error', err);
-    return null;
-  }
-}
+let currentUserPermissions = null; // cached permissions for current user
 
 // Map status display -> style
 function setStatusBadge(statusRaw, stageRaw) {
@@ -77,6 +64,22 @@ function shadeColor(hexColor, percent) {
   }
 }
 
+// Fetch user permissions from server (via API action 'get_user_permissions')
+async function fetchUserPermissions(userName) {
+  try {
+    if (!userName) return null;
+    const resp = await window.apiService.request('get_user_permissions', { userName: userName }, { showLoading: false });
+    if (resp && resp.success) {
+      return resp.data || null;
+    }
+    console.warn('fetchUserPermissions: no perms returned', resp);
+    return null;
+  } catch (err) {
+    console.error('fetchUserPermissions error', err);
+    return null;
+  }
+}
+
 // Main function to fetch and show application details using ApiService
 async function viewApplication(appNumber) {
   if (!appNumber) {
@@ -109,20 +112,32 @@ async function viewApplication(appNumber) {
 }
 
 function initViewApplicationModal(appData) {
+  // Make init tolerant: allow being called with no argument.
   if (!appData) {
     if (!currentAppData) return;
     appData = currentAppData;
   }
+
   currentAppData = appData || {};
 
   const appNumber = appData.appNumber || 'N/A';
   const applicantName = appData.applicantName || appData.name || 'N/A';
 
+  // Header: application number and applicant name
   safeSetText('applicationNumber', appNumber);
   safeSetText('applicationApplicantName', applicantName);
 
+  // Status badge
   setStatusBadge(appData.status, appData.stage);
 
+  // Show/hide print button for approved items
+  const printBtn = document.getElementById('btn-print');
+  if (printBtn) {
+    if ((appData.status || '').toString().trim().toUpperCase() === 'APPROVED') printBtn.style.display = 'inline-block';
+    else printBtn.style.display = 'none';
+  }
+
+  // Populate view-style fields (view-*)
   safeSetText('view-name', applicantName);
   safeSetText('view-amount', formatCurrency(appData.amount));
   safeSetText('view-purpose', appData.purpose || 'N/A');
@@ -134,9 +149,7 @@ function initViewApplicationModal(appData) {
   populateLoanHistoryReview(appData.loanHistory || []);
   populatePersonalBudgetReview(appData.personalBudget || []);
   populateMonthlyTurnoverReview(appData.monthlyTurnover || {});
-  safeSetText('view-netIncome', formatCurrency(appData.netIncome));
-  safeSetText('view-repaymentAmount', formatCurrency(appData.repaymentAmount));
-  safeSetText('view-debtServiceRatio', appData.debtServiceRatio || 'N/A');
+  // Note: Net Income / DSR are now restored into the personal-budget table; no inline quick-stat updates here.
 
   safeSetText('view-marginComment', appData.marginComment || 'No comment');
   safeSetText('view-repaymentComment', appData.repaymentComment || 'No comment');
@@ -146,45 +159,57 @@ function initViewApplicationModal(appData) {
   safeSetText('view-riskMitigationComment', appData.riskMitigationComment || 'No comment');
   safeSetText('view-creditOfficerComment', appData.creditOfficerComment || 'No recommendation');
 
+  // Recommendations (display)
   safeSetText('view-details-creditOfficerComment', appData.creditOfficerComment || 'No recommendation');
   safeSetText('view-details-amlroComments', appData.amlroComments || 'No comments');
   safeSetText('view-details-headOfCredit', appData.headOfCredit || 'No recommendation');
   safeSetText('view-details-branchManager', appData.branchManager || 'No recommendation');
   safeSetText('view-details-approver1Comments', appData.approver1Comments || 'No comments');
 
+  // Recommendations (textarea version for editing)
   safeSetValue('view-details-creditOfficerComment-textarea', appData.creditOfficerComment || '');
   safeSetValue('view-details-amlroComments-textarea', appData.amlroComments || '');
   safeSetValue('view-details-headOfCredit-textarea', appData.headOfCredit || '');
   safeSetValue('view-details-branchManager-textarea', appData.branchManager || '');
   safeSetValue('view-details-approver1Comments-textarea', appData.approver1Comments || '');
 
+  // Signature names
   safeSetText('signature-creditOfficer-name', appData.creditOfficerName || appData.creditOfficer || '');
   safeSetText('signature-headOfCredit-name', appData.headOfCreditName || appData.headOfCredit || '');
   safeSetText('signature-branchManager-name', appData.branchManagerName || appData.branchManager || '');
 
+  // Documents
+  // cache currentAppData.documents so openDocument can use it
   currentAppData.documents = appData.documents || {};
   updateDocumentButtonsForReview(currentAppData.documents);
 
-  // Fetch current user's permissions and then update UI
+  // Fetch user permissions, then show editors and update UI based on perms
   const userName = localStorage.getItem('loggedInName') || '';
   fetchUserPermissions(userName).then(perms => {
     currentUserPermissions = perms || null;
-    showRelevantCommentEditors(perms ? perms.role : localStorage.getItem('userRole'), appData.stage);
+    // Show editors based on actual permissions (perms may be null - fallback below)
+    showRelevantCommentEditors(perms ? perms.role : (localStorage.getItem('userRole') || ''), appData.stage || 'New');
     updateModalUIForStage(appData, perms);
   }).catch(err => {
     console.warn('Could not fetch user permissions', err);
-    // fallback to previous role-based behavior
-    updateModalUIForStage(appData, { role: localStorage.getItem('userRole'), level: Number(localStorage.getItem('userLevel') || 0), isAdmin: (localStorage.getItem('userRole')||'').toLowerCase()==='admin' });
+    currentUserPermissions = null;
+    // fallback to local role
+    const localRole = localStorage.getItem('userRole') || '';
+    showRelevantCommentEditors(localRole, appData.stage || 'New');
+    updateModalUIForStage(appData, null);
   });
 
-  // Show modal
+  // Show modal (do not lock body scroll; allow page to scroll normally)
   const modal = document.getElementById('viewApplicationModal');
   if (modal) {
     modal.style.display = 'block';
     modal.classList.add('active');
+    // Ensure modal content has position:relative so modal-local loader can be appended
     const container = modal.querySelector('.modal-content') || modal;
     const computedPosition = window.getComputedStyle(container).position;
-    if (!computedPosition || computedPosition === 'static') container.style.position = 'relative';
+    if (!computedPosition || computedPosition === 'static') {
+      container.style.position = 'relative';
+    }
   }
 }
 
@@ -241,19 +266,97 @@ function showEditorForRole(roleName) {
   });
 }
 
-showRelevantCommentEditors
+// Improved showRelevantCommentEditors(role, stage)
+// - tolerant: case-insensitive, trims, supports multiple roles/stages, logs helpful info when none shown
+function showRelevantCommentEditors(userRole, stage) {
+  hideAllRoleEditors();
+  if (!userRole) {
+    console.warn('showRelevantCommentEditors: no role provided');
+    return;
+  }
+  const roleLower = userRole.toString().trim().toLowerCase();
+  const stageLower = (stage || '').toString().trim().toLowerCase();
+
+  const editors = Array.from(document.querySelectorAll('.comment-editor'));
+  if (!editors.length) {
+    console.warn('showRelevantCommentEditors: no .comment-editor elements found');
+    return;
+  }
+
+  let shown = 0;
+  editors.forEach(el => {
+    try {
+      const roles = (el.dataset.role || '').split(',').map(r => r.trim().toLowerCase()).filter(Boolean);
+      const stages = (el.dataset.stages || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+
+      const roleMatch = roles.length === 0 || roles.includes(roleLower) || roles.includes('all') || roles.includes('*');
+      const stageMatch = stages.length === 0 || stages.includes(stageLower) || stages.includes('all') || stages.includes('*');
+
+      if (roleMatch && stageMatch) {
+        el.style.display = 'block';
+        shown++;
+      } else {
+        el.style.display = 'none';
+      }
+    } catch (e) {
+      console.warn('Error processing comment-editor element', el, e);
+    }
+  });
+
+  if (shown === 0) {
+    console.info(`No comment editors shown for role="${roleLower}" stage="${stageLower}". Check data-role/data-stages on elements:`);
+    editors.forEach((el, idx) => console.info(`#${idx+1}`, { role: el.dataset.role, stages: el.dataset.stages, display: getComputedStyle(el).display }));
+  }
+}
+
+// updated saveStageComment to use ApiService and server-side permissions enforcement
 async function saveStageComment(isRevert, explicitAction) {
+  if (!currentAppData || !currentAppData.appNumber) {
+    if (typeof window.showToast === 'function') window.showToast('Application data not available.', 'error');
+    else alert('Application data not available.');
+    return;
+  }
+  const appNumber = currentAppData.appNumber;
+  const comment = (document.getElementById('stageComment') || {}).value || '';
+  const userName = localStorage.getItem('loggedInName') || '';
+  const userRole = localStorage.getItem('userRole') || '';
+
+  if (typeof showLoading === 'function') showLoading('Saving...');
+
   try {
-    if (!currentAppData || !currentAppData.appNumber) {
-      if (typeof showToast === 'function') showToast('Application data not available.', 'error');
-      else alert('Application data not available.');
+    if (isRevert || explicitAction === 'REVERT') {
+      const targetStage = prompt('Enter stage to revert to (New, Assessment, Compliance, Ist Review, 2nd Review):');
+      if (!targetStage) {
+        if (typeof hideLoading === 'function') hideLoading();
+        return;
+      }
+
+      const payload = {
+        appNumber: appNumber,
+        targetStage: targetStage,
+        userName: userName,
+        comment: comment
+      };
+
+      const resp = await window.apiService.request('revert_application_stage', payload, { showLoading: false });
+      if (typeof hideLoading === 'function') hideLoading();
+
+      if (resp && resp.success) {
+        if (typeof window.showSuccessModal === 'function') await window.showSuccessModal(resp.message || 'Application reverted successfully');
+        else alert(resp.message || 'Application reverted successfully');
+        closeViewApplicationModal();
+        if (typeof refreshApplications === 'function') refreshApplications();
+      } else {
+        if (typeof window.showToast === 'function') window.showToast('Error: ' + (resp?.message || 'Unknown error'), 'error');
+        else alert('Error: ' + (resp?.message || 'Unknown error'));
+      }
       return;
     }
-    const appNumber = currentAppData.appNumber;
-    const actor = localStorage.getItem('loggedInName') || '';
-    const perms = currentUserPermissions || getUserPermissionsFallback();
 
-    // Gather role-specific comments from visible textareas
+    // Determine action: explicitAction takes precedence, else default to SUBMIT
+    const action = explicitAction === 'APPROVE' ? 'APPROVE' : 'SUBMIT';
+
+    // Gather comments from the textareas (only visible editors will be filled by users)
     const commentsData = {
       creditOfficerComment: document.getElementById('view-details-creditOfficerComment-textarea')?.value || '',
       amlroComments: document.getElementById('view-details-amlroComments-textarea')?.value || '',
@@ -263,90 +366,61 @@ async function saveStageComment(isRevert, explicitAction) {
       approver2Comments: document.getElementById('view-details-approver2Comments-textarea')?.value || ''
     };
 
-    // Generic stage comment if present
-    const genericComment = (document.getElementById('stageComment') || {}).value || '';
-
-    // Decide action: explicitAction ('APPROVE'/'REVERT' from buttons) takes precedence
-    let action = explicitAction ? explicitAction.toString().toUpperCase() : 'SUBMIT';
-    if (isRevert) action = 'REVERT';
-
-    // Authorization check client-side (server will enforce as well)
-    const allowedStages = perms.allowedStages || [];
-    const isAdmin = !!perms.isAdmin;
-    if (!isAdmin && action === 'SUBMIT' && !allowedStages.includes(currentAppData.stage) && !allowedStages.includes('ALL')) {
-      if (typeof showToast === 'function') showToast('You are not authorized to submit at this stage.', 'error');
-      else alert('Not authorized to submit at this stage.');
-      return;
-    }
-
-    // Build payload; include currentStage so server can detect conflicts
     const payload = {
       appNumber: appNumber,
+      comment: comment,
       action: action,
-      currentStage: currentAppData.stage,
       comments: commentsData,
-      comment: genericComment,
-      // optional: include role & userName (server will independently verify)
-      role: perms.role || localStorage.getItem('userRole'),
-      userName: actor
+      currentStage: currentAppData.stage || '',
+      userName: userName
     };
 
-    // Show loading and call API
-    showLoading && showLoading(action === 'SUBMIT' ? 'Saving...' : (action === 'APPROVE' ? 'Approving...' : 'Processing...'));
-    const response = await window.apiService.request('submit_application_comment', payload, { showLoading: false });
+    const resp = await window.apiService.request('submit_application_comment', payload, { showLoading: false });
 
-    hideLoading && hideLoading();
+    if (typeof hideLoading === 'function') hideLoading();
 
-    if (!response) {
+    if (!resp) {
       if (typeof showToast === 'function') showToast('No response from server', 'error');
       else alert('No response from server');
       return;
     }
 
-    if (!response.success) {
-      // Handle conflict special case (stage changed)
-      if (response.code === 'CONFLICT') {
+    if (!resp.success) {
+      // handle conflict
+      if (resp.code === 'CONFLICT') {
         const ok = (typeof showConfirmModal === 'function')
           ? await showConfirmModal('This application changed since you opened it. Reload details and try again?', { title: 'Conflict', confirmText: 'Reload', cancelText: 'Cancel' })
           : confirm('This application changed since you opened it. Reload details and try again?');
 
-        if (ok) {
-          // reload fresh details
-          if (typeof viewApplication === 'function') viewApplication(appNumber);
-        }
+        if (ok) viewApplication(appNumber);
         return;
       }
 
-      if (typeof showToast === 'function') showToast('Error: ' + (response.message || 'Unknown error'), 'error');
-      else alert('Error: ' + (response.message || 'Unknown error'));
+      if (typeof showToast === 'function') showToast('Error: ' + (resp?.message || 'Unknown error'), 'error');
+      else alert('Error: ' + (resp?.message || 'Unknown error'));
       return;
     }
 
-    // Success: server returns normalized updated app under response.data.app
-    const updated = (response.data && response.data.app) ? response.data.app : null;
+    // Success: if server returned updated app object, re-init modal with it
+    const updated = resp.data && resp.data.app ? resp.data.app : null;
     if (updated) {
-      // Refresh currentAppData and update UI
       currentAppData = updated;
       initViewApplicationModal(updated);
-      if (typeof showSuccessModal === 'function') await showSuccessModal(response.message || 'Action completed');
-      else alert(response.message || 'Action completed');
-      // Refresh application lists and badges
+      if (typeof showSuccessModal === 'function') await showSuccessModal(resp.message || 'Action completed successfully');
+      else alert(resp.message || 'Action completed successfully');
       if (typeof refreshApplications === 'function') refreshApplications();
-      if (typeof updateBadgeCounts === 'function') updateBadgeCounts();
     } else {
-      if (typeof showSuccessModal === 'function') await showSuccessModal(response.message || 'Action completed');
-      else alert(response.message || 'Action completed');
-      if (typeof refreshApplications === 'function') refreshApplications();
-      if (typeof updateBadgeCounts === 'function') updateBadgeCounts();
-      // Close modal if needed
+      if (typeof showSuccessModal === 'function') await showSuccessModal(resp.message || 'Action completed successfully');
+      else alert(resp.message || 'Action completed successfully');
       closeViewApplicationModal();
+      if (typeof refreshApplications === 'function') refreshApplications();
     }
 
   } catch (err) {
-    hideLoading && hideLoading();
-    console.error('saveStageComment error', err);
-    if (typeof showToast === 'function') showToast('Error: ' + (err.message || err), 'error');
-    else alert('Error: ' + (err.message || err));
+    if (typeof hideLoading === 'function') hideLoading();
+    console.error('Error saving stage comment:', err);
+    if (typeof window.showToast === 'function') window.showToast('Error: ' + (err?.message || err), 'error');
+    else alert('Error: ' + (err?.message || err));
   }
 }
 
@@ -551,82 +625,104 @@ function openDocument(docType) {
   }
 }
 
+/* UI state logic (updated to accept optional perms) */
 function updateModalUIForStage(appData, userPermissions) {
   const stage = (appData.stage || 'New').toString().trim();
   const status = (appData.status || '').toString().trim().toUpperCase();
-  const userName = localStorage.getItem('loggedInName') || '';
-  const userRoleLocal = (localStorage.getItem('userRole') || '').toString();
-  const perms = userPermissions || { role: userRoleLocal, level: Number(localStorage.getItem('userLevel')||0), isAdmin: (userRoleLocal||'').toLowerCase()==='admin', allowedStages: [], allowedStatuses: [] };
 
-  const allowedStages = perms.allowedStages || [];
-  const allowedStatuses = perms.allowedStatuses || [];
-  const isAdmin = !!perms.isAdmin;
-  const level = perms.level || Number(localStorage.getItem('userLevel') || 0);
+  // derive role/level from permissions if provided, else from localStorage
+  const userRoleRaw = (userPermissions && userPermissions.role) ? userPermissions.role : (localStorage.getItem('userRole') || '');
+  const userLevel = (userPermissions && userPermissions.level) ? Number(userPermissions.level) : Number(localStorage.getItem('userLevel') || 0);
+  const role = (userRoleRaw || '').toString().trim().toLowerCase();
 
-  // Buttons
+  // Elements
+  const signatureSection = document.getElementById('signatures-section');
+  const commentSection = document.getElementById('stage-comment-section');
+  const commentLabel = document.getElementById('stage-comment-label');
   const approveBtn = document.getElementById('btn-approve');
   const revertBtn = document.getElementById('btn-revert');
   const submitBtn = document.getElementById('btn-submit');
 
-  // Hide all by default
+  // Signatures visible only when approved
+  if (signatureSection) {
+    if (status === 'APPROVED' || stage === 'Approval') {
+      signatureSection.style.display = 'block';
+    } else {
+      signatureSection.style.display = 'none';
+    }
+  }
+
+  // Hide generic comment area initially
+  if (commentSection) commentSection.style.display = 'none';
+  if (commentLabel) commentLabel.style.display = 'none';
+
+  // Hide all action buttons by default
   if (approveBtn) approveBtn.style.display = 'none';
   if (revertBtn) revertBtn.style.display = 'none';
   if (submitBtn) submitBtn.style.display = 'none';
 
-  // Determine if user may submit at this stage
-  const maySubmit = isAdmin || allowedStages.includes(stage) || allowedStages.includes('ALL');
-
-  // Determine if user may approve
-  const mayApprove = isAdmin || (level === 4 && status === 'PENDING APPROVAL') || (level === 3 && stage === '2nd Review' && status === 'PENDING');
-
-  // Determine if user may revert (branch manager, approver, admin)
-  const mayRevert = isAdmin || (level === 3) || (level === 4);
-
-  if (maySubmit && submitBtn) submitBtn.style.display = 'inline-block';
-  if (mayApprove && approveBtn) approveBtn.style.display = 'inline-block';
-  if (mayRevert && revertBtn) revertBtn.style.display = 'inline-block';
-
-  // Show/hide comment editors depending on permission mapping (existing logic retained)
+  // Hide all role-specific editors initially
   hideAllRoleEditors();
-  showRelevantCommentEditors(perms.role || userRoleLocal);
 
-  // Show signatures if approved
-  const signatureSection = document.getElementById('signatures-section');
-  if (signatureSection) signatureSection.style.display = (status === 'APPROVED' || stage === 'Approval') ? 'block' : 'none';
+  // Role helpers (fall back to role string)
+  const isAdmin = role === 'admin' || userLevel === 5;
+  const isCreditOfficer = role.includes('credit officer') || role.includes('credit sales officer') || role.includes('credit analyst') || userLevel === 1;
+  const isAMLRO = role === 'amlro' || role.includes('amlro') || userLevel === 2;
+  const isHeadOfCredit = role.includes('head of credit') || userLevel === 2;
+  const isBranchManager = role.includes('branch manager') || role.includes('branch manager/approver') || userLevel === 3;
+  const isApprover = role === 'approver' || role.includes('approver') || userLevel === 4;
 
-  // Show/hide generic commentSection based on editors visible
+  // Apply tables per status (NEW, PENDING, PENDING APPROVAL, APPROVED)
+  switch (status) {
+    case 'NEW':
+    case '':
+      if (isCreditOfficer || isAdmin) {
+        showEditorForRole('Credit Officer');
+        if (submitBtn) submitBtn.style.display = 'inline-block';
+      }
+      break;
+
+    case 'PENDING':
+      if (isAMLRO || isAdmin) {
+        showEditorForRole('AMLRO');
+        if (submitBtn) submitBtn.style.display = 'inline-block';
+      }
+      if (isHeadOfCredit || isAdmin) {
+        showEditorForRole('Head of Credit');
+        if (submitBtn) submitBtn.style.display = 'inline-block';
+      }
+      if (isBranchManager || isAdmin) {
+        showEditorForRole('Branch Manager/Approver');
+        if (submitBtn) submitBtn.style.display = 'inline-block';
+        if (approveBtn) approveBtn.style.display = 'inline-block';
+        if (revertBtn) revertBtn.style.display = 'inline-block';
+      }
+      break;
+
+    case 'PENDING APPROVAL':
+      if (isApprover || isAdmin) {
+        showEditorForRole('Approver');
+        if (approveBtn) approveBtn.style.display = 'inline-block';
+        if (revertBtn) revertBtn.style.display = 'inline-block';
+      }
+      break;
+
+    case 'APPROVED':
+      // no action buttons
+      break;
+
+    default:
+      break;
+  }
+
   const anyEditorVisible = Array.from(document.querySelectorAll('.comment-editor')).some(el => el.style.display !== 'none');
-  const commentSection = document.getElementById('stage-comment-section');
-  const commentLabel = document.getElementById('stage-comment-label');
   if (anyEditorVisible) {
     if (commentSection) commentSection.style.display = 'block';
-    if (commentLabel) { commentLabel.style.display = 'block'; commentLabel.textContent = 'Comment'; }
-  } else {
-    if (commentSection) commentSection.style.display = 'none';
-    if (commentLabel) commentLabel.style.display = 'none';
+    if (commentLabel) {
+      commentLabel.style.display = 'block';
+      commentLabel.textContent = 'Comment';
+    }
   }
-}
-
-function getUserPermissionsFallback() {
-  const role = localStorage.getItem('userRole') || '';
-  const level = Number(localStorage.getItem('userLevel') || 0);
-  const isAdmin = (role && role.toLowerCase() === 'admin') || level === 5;
-  // Minimal allowedStages inference (best-effort)
-  const mapping = {
-    'Admin': ['ALL'],
-    'Head of Credit': ['Ist Review', 'Compliance', 'Assessment', 'New'],
-    'Credit Officer': ['New', 'Assessment'],
-    'AMLRO': ['Compliance'],
-    'Branch Manager/Approver': ['2nd Review'],
-    'Approver': ['Approval']
-  };
-  return {
-    role: role,
-    level: level,
-    isAdmin: isAdmin,
-    allowedStages: mapping[role] || [],
-    allowedStatuses: [] // unknown here
-  };
 }
 
 /* small helper / fallbacks (kept) */
