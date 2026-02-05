@@ -524,107 +524,53 @@ window.loadModalContentIfNeeded = loadModalContentIfNeeded;
 /* ==========================================================================
    Robust lazy-loader for User Management (loads HTML + JS on demand)
    ========================================================================== */
-// Replace existing loadUserMgtSection with this improved version
+// in Main.js (modern approach)
 async function loadUserMgtSection() {
   const container = document.getElementById('user-management-root');
-  if (!container) {
-    console.warn('User management container (#user-management-root) not found in DOM');
+  if (!container) return;
+
+  if (container.dataset.loaded === '1') {
+    // already loaded, call module init again if needed
+    if (window.UserMgtModule && typeof window.UserMgtModule.initUserMgt === 'function') {
+      await window.UserMgtModule.initUserMgt();
+    }
+    // ensure visible
+    document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
+    document.getElementById('add-user').classList.add('active');
     return;
   }
 
-  // If already loaded once, just call initializer if present and make sure section is visible
-  if (container.getAttribute('data-loaded') === '1') {
-    console.log('UserMgt already loaded — initializing and showing section');
-    if (typeof window.initUserMgt === 'function') {
-      try { await window.initUserMgt(); } catch (e) { console.warn('initUserMgt error', e); }
-    }
-    // Ensure the section is active/visible
-    const addUserSection = document.getElementById('add-user');
-    if (addUserSection && !addUserSection.classList.contains('active')) {
-      document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
-      addUserSection.classList.add('active');
-    }
-    // Ensure form populated
-    if (typeof window.refreshUsersList === 'function') {
-      try { await window.refreshUsersList(); } catch (e) { console.warn('refreshUsersList error', e); }
-    }
-    // focus the name field if present
-    const nameInput = document.getElementById('new-user-name');
-    if (nameInput) nameInput.focus();
-    return;
-  }
-
-  // Show placeholder while fetching
-  container.innerHTML = '<div class="um-loading-placeholder" style="padding:16px">Loading user management module…</div>';
+  // show placeholder while loading
+  container.innerHTML = '<div style="padding:16px">Loading user management…</div>';
 
   try {
-    console.log('Fetching UserMgt.html...');
-    const resp = await fetch('UserMgt.html', { cache: 'no-store' });
-    if (!resp.ok) throw new Error('Failed to fetch UserMgt.html: HTTP ' + resp.status);
-    const html = await resp.text();
+    // load module + html in parallel
+    const [module, htmlResp] = await Promise.all([
+      import('./UserMgt.js'),                 // must be served as module
+      fetch('UserMgt.html', { cache: 'no-store' })
+    ]);
+    const html = await htmlResp.text();
 
-    // Inject HTML and mark loaded
+    // inject HTML, mark loaded
     container.innerHTML = html;
-    container.setAttribute('data-loaded', '1');
-    console.log('UserMgt.html injected');
+    container.dataset.loaded = '1';
 
-    // Load UserMgt.js if not already loaded
-    if (!window.__userMgt_script_loaded) {
-      console.log('Loading UserMgt.js...');
-      await new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = 'UserMgt.js';
-        s.async = false;
-        s.onload = () => { window.__userMgt_script_loaded = true; console.log('UserMgt.js loaded'); resolve(); };
-        s.onerror = (ev) => reject(new Error('Failed to load UserMgt.js'));
-        document.head.appendChild(s);
-      });
-    } else {
-      console.log('UserMgt.js already loaded');
+    // keep a ref to the imported module for later calls
+    window.UserMgtModule = module;
+
+    // init
+    if (typeof module.initUserMgt === 'function') {
+      await module.initUserMgt();
     }
 
-    // Wait for initUserMgt to be available (short loop)
-    const waitForInit = async (timeout = 3000) => {
-      const start = Date.now();
-      while (Date.now() - start < timeout) {
-        if (typeof window.initUserMgt === 'function') return true;
-        await new Promise(r => setTimeout(r, 50));
-      }
-      return false;
-    };
-
-    const ready = await waitForInit(3000);
-    if (!ready) {
-      console.warn('initUserMgt not defined after loading UserMgt.js');
-    } else {
-      try {
-        await window.initUserMgt();
-        console.log('initUserMgt executed');
-      } catch (e) {
-        console.warn('initUserMgt threw an error', e);
-      }
-    }
-
-    // Ensure the add-user section is visible
-    const addUserSection = document.getElementById('add-user');
-    if (addUserSection && !addUserSection.classList.contains('active')) {
-      document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
-      addUserSection.classList.add('active');
-    }
-
-    // Make sure container isn't inadvertently hidden by inline styles
-    container.style.display = '';
-
-    // Refresh the users list and focus input
-    if (typeof window.refreshUsersList === 'function') {
-      try { await window.refreshUsersList(); } catch (e) { console.warn('refreshUsersList error', e); }
-    }
+    // reveal section and focus
+    document.querySelectorAll('.content-section').forEach(s => s.classList.remove('active'));
+    document.getElementById('add-user').classList.add('active');
     const nameInput = document.getElementById('new-user-name');
     if (nameInput) nameInput.focus();
-
   } catch (err) {
-    console.error('loadUserMgtSection error:', err);
-    container.innerHTML = `<div class="error" style="padding:16px;color:#b91c1c;">Failed to load user management UI: ${escapeHtml(err.message || err)}</div>`;
+    console.error('Failed to load UserMgt:', err);
+    container.innerHTML = `<div class="error">Failed to load user management: ${err.message}</div>`;
   }
 }
 /* ==========================================================================
@@ -946,5 +892,6 @@ window.refreshApplications = refreshApplications;
 /* ==========================================================================
    End of Main.js
    ========================================================================== */
+
 
 
