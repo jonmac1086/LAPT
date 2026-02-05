@@ -524,7 +524,6 @@ window.loadModalContentIfNeeded = loadModalContentIfNeeded;
 /* ==========================================================================
    Robust lazy-loader for User Management (loads HTML + JS on demand)
    ========================================================================== */
-// in Main.js (modern approach)
 async function loadUserMgtSection() {
   const container = document.getElementById('user-management-root');
   if (!container) return;
@@ -892,6 +891,7 @@ window.refreshApplications = refreshApplications;
 /* ==========================================================================
    End of Main.js
    ========================================================================== */
+
 
 
 
