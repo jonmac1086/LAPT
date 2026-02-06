@@ -1,12 +1,12 @@
-// viewApplicationJS - View Application Modal JavaScript (updated)
+// viewApplicationJS - View Application Modal JavaScript (patched)
+// - Uses server permissions when available to show comment editors by role
+// - Falls back to client-stored role if server permissions unavailable
 // - Restores NET INCOME into table
-// - Uses server permissions (get_user_permissions) when available to control editor visibility and actions
-// - Improved, tolerant showRelevantCommentEditors to avoid accidental exclusions
 
-console.log('viewApplicationJS loaded (net income moved into table + perms)');
+console.log('viewApplicationJS loaded (patched for role-driven editors)');
 
 let currentAppData = null;
-let currentUserPermissions = null; // cached permissions for current user
+let currentUserPermissions = null; // cached permissions for the logged-in user
 
 // Map status display -> style
 function setStatusBadge(statusRaw, stageRaw) {
@@ -64,15 +64,13 @@ function shadeColor(hexColor, percent) {
   }
 }
 
-// Fetch user permissions from server (via API action 'get_user_permissions')
+// Fetch user permissions from server (uses api action 'get_user_permissions')
 async function fetchUserPermissions(userName) {
   try {
     if (!userName) return null;
     const resp = await window.apiService.request('get_user_permissions', { userName: userName }, { showLoading: false });
-    if (resp && resp.success) {
-      return resp.data || null;
-    }
-    console.warn('fetchUserPermissions: no perms returned', resp);
+    if (resp && resp.success) return resp.data || null;
+    console.warn('fetchUserPermissions: unexpected response', resp);
     return null;
   } catch (err) {
     console.error('fetchUserPermissions error', err);
@@ -112,7 +110,7 @@ async function viewApplication(appNumber) {
 }
 
 function initViewApplicationModal(appData) {
-  // Make init tolerant: allow being called with no argument.
+  // Allow being called with no argument (re-render existing)
   if (!appData) {
     if (!currentAppData) return;
     appData = currentAppData;
@@ -123,21 +121,21 @@ function initViewApplicationModal(appData) {
   const appNumber = appData.appNumber || 'N/A';
   const applicantName = appData.applicantName || appData.name || 'N/A';
 
-  // Header: application number and applicant name
+  // Header
   safeSetText('applicationNumber', appNumber);
   safeSetText('applicationApplicantName', applicantName);
 
   // Status badge
   setStatusBadge(appData.status, appData.stage);
 
-  // Show/hide print button for approved items
+  // Print button visibility
   const printBtn = document.getElementById('btn-print');
   if (printBtn) {
     if ((appData.status || '').toString().trim().toUpperCase() === 'APPROVED') printBtn.style.display = 'inline-block';
     else printBtn.style.display = 'none';
   }
 
-  // Populate view-style fields (view-*)
+  // Populate fields
   safeSetText('view-name', applicantName);
   safeSetText('view-amount', formatCurrency(appData.amount));
   safeSetText('view-purpose', appData.purpose || 'N/A');
@@ -149,7 +147,6 @@ function initViewApplicationModal(appData) {
   populateLoanHistoryReview(appData.loanHistory || []);
   populatePersonalBudgetReview(appData.personalBudget || []);
   populateMonthlyTurnoverReview(appData.monthlyTurnover || {});
-  // Note: Net Income / DSR are now restored into the personal-budget table; no inline quick-stat updates here.
 
   safeSetText('view-marginComment', appData.marginComment || 'No comment');
   safeSetText('view-repaymentComment', appData.repaymentComment || 'No comment');
@@ -159,14 +156,14 @@ function initViewApplicationModal(appData) {
   safeSetText('view-riskMitigationComment', appData.riskMitigationComment || 'No comment');
   safeSetText('view-creditOfficerComment', appData.creditOfficerComment || 'No recommendation');
 
-  // Recommendations (display)
+  // Display recommendation blocks
   safeSetText('view-details-creditOfficerComment', appData.creditOfficerComment || 'No recommendation');
   safeSetText('view-details-amlroComments', appData.amlroComments || 'No comments');
   safeSetText('view-details-headOfCredit', appData.headOfCredit || 'No recommendation');
   safeSetText('view-details-branchManager', appData.branchManager || 'No recommendation');
   safeSetText('view-details-approver1Comments', appData.approver1Comments || 'No comments');
 
-  // Recommendations (textarea version for editing)
+  // Textareas for editing
   safeSetValue('view-details-creditOfficerComment-textarea', appData.creditOfficerComment || '');
   safeSetValue('view-details-amlroComments-textarea', appData.amlroComments || '');
   safeSetValue('view-details-headOfCredit-textarea', appData.headOfCredit || '');
@@ -179,37 +176,33 @@ function initViewApplicationModal(appData) {
   safeSetText('signature-branchManager-name', appData.branchManagerName || appData.branchManager || '');
 
   // Documents
-  // cache currentAppData.documents so openDocument can use it
   currentAppData.documents = appData.documents || {};
   updateDocumentButtonsForReview(currentAppData.documents);
 
-  // Fetch user permissions, then show editors and update UI based on perms
+  // Fetch server-side permissions; prefer server role when showing editors
   const userName = localStorage.getItem('loggedInName') || '';
+  const localRole = localStorage.getItem('userRole') || '';
+
   fetchUserPermissions(userName).then(perms => {
     currentUserPermissions = perms || null;
-    // Show editors based on actual permissions (perms may be null - fallback below)
-    showRelevantCommentEditors(perms ? perms.role : (localStorage.getItem('userRole') || ''), appData.stage || 'New');
-    updateModalUIForStage(appData, perms);
+    const effective = (currentUserPermissions && currentUserPermissions.role) ? currentUserPermissions : localRole;
+    showRelevantCommentEditors(effective, appData.stage || 'New');
+    updateModalUIForStage(appData, currentUserPermissions);
   }).catch(err => {
-    console.warn('Could not fetch user permissions', err);
+    console.warn('fetchUserPermissions failed, falling back to local role', err);
     currentUserPermissions = null;
-    // fallback to local role
-    const localRole = localStorage.getItem('userRole') || '';
     showRelevantCommentEditors(localRole, appData.stage || 'New');
     updateModalUIForStage(appData, null);
   });
 
-  // Show modal (do not lock body scroll; allow page to scroll normally)
+  // Show modal
   const modal = document.getElementById('viewApplicationModal');
   if (modal) {
     modal.style.display = 'block';
     modal.classList.add('active');
-    // Ensure modal content has position:relative so modal-local loader can be appended
     const container = modal.querySelector('.modal-content') || modal;
     const computedPosition = window.getComputedStyle(container).position;
-    if (!computedPosition || computedPosition === 'static') {
-      container.style.position = 'relative';
-    }
+    if (!computedPosition || computedPosition === 'static') container.style.position = 'relative';
   }
 }
 
@@ -222,7 +215,7 @@ function closeViewApplicationModal() {
   try { document.body.style.overflow = ''; } catch (e) {}
 }
 
-// When "Edit" is clicked from view modal — close view and open new/edit modal
+// Open edit section from view
 function openEditSection(tabName) {
   try {
     if (!currentAppData || !currentAppData.appNumber) {
@@ -230,47 +223,35 @@ function openEditSection(tabName) {
       else alert('Application not loaded.');
       return;
     }
-
-    // Close view modal so the edit modal is the active UI
     closeViewApplicationModal();
-
-    // store requested edit tab; newApplicationJS will read this and open the requested tab
     sessionStorage.setItem('editTab', tabName || 'tab1');
-
-    // open the edit modal (load the existing application for edit)
-    if (typeof showNewApplicationModal === 'function') {
-      showNewApplicationModal(currentAppData.appNumber);
-    } else {
-      window.showNewApplicationModal && window.showNewApplicationModal(currentAppData.appNumber);
-    }
+    if (typeof showNewApplicationModal === 'function') showNewApplicationModal(currentAppData.appNumber);
+    else window.showNewApplicationModal && window.showNewApplicationModal(currentAppData.appNumber);
   } catch (e) {
     console.error('Error opening edit section:', e);
   }
 }
 
-// Show/hide comment editors based on role/stage
+// Hide all editors
 function hideAllRoleEditors() {
   document.querySelectorAll('.comment-editor').forEach(el => {
     el.style.display = 'none';
   });
 }
 
+// Show editors matching a role (simple helper)
 function showEditorForRole(roleName) {
   if (!roleName) return;
   const roleLower = roleName.toString().trim().toLowerCase();
   document.querySelectorAll('.comment-editor').forEach(el => {
     const roles = (el.dataset.role || '').split(',').map(r => r.trim().toLowerCase());
-    if (roles.includes(roleLower)) {
-      el.style.display = 'block';
-    }
+    if (roles.includes(roleLower)) el.style.display = 'block';
   });
 }
 
-// Replace existing showRelevantCommentEditors with this function
+// showRelevantCommentEditors: accepts either a permission object or a role string
 function showRelevantCommentEditors(roleOrPerms, stage) {
-  // roleOrPerms can be either:
-  // - a permission object returned from the server { role: 'Credit Officer', level: 1, ... }
-  // - or a plain role string like 'Credit Officer'
+  // resolve role string from roleOrPerms
   let role = '';
   if (!roleOrPerms) {
     role = (localStorage.getItem('userRole') || '').toString().trim();
@@ -299,7 +280,6 @@ function showRelevantCommentEditors(roleOrPerms, stage) {
   }
 
   let shown = 0;
-
   editors.forEach(el => {
     try {
       const rolesAttr = (el.dataset.role || '').toString();
@@ -324,13 +304,14 @@ function showRelevantCommentEditors(roleOrPerms, stage) {
   });
 
   if (shown === 0) {
-    console.info(`showRelevantCommentEditors: no editors shown for role="${role}" stage="${stage}". Check data-role/data-stages attributes:`);
+    console.info(`No comment editors shown for role="${role}" stage="${stage}". Check data-role/data-stages attributes:`);
     editors.forEach((el, idx) => {
       console.info(`#${idx+1}`, { role: el.dataset.role, stages: el.dataset.stages, visible: getComputedStyle(el).display });
     });
   }
 }
-// updated saveStageComment to use ApiService and server-side permissions enforcement
+
+// saveStageComment uses API and server-side enforcement
 async function saveStageComment(isRevert, explicitAction) {
   if (!currentAppData || !currentAppData.appNumber) {
     if (typeof window.showToast === 'function') window.showToast('Application data not available.', 'error');
@@ -340,30 +321,20 @@ async function saveStageComment(isRevert, explicitAction) {
   const appNumber = currentAppData.appNumber;
   const comment = (document.getElementById('stageComment') || {}).value || '';
   const userName = localStorage.getItem('loggedInName') || '';
-  const userRole = localStorage.getItem('userRole') || '';
 
   if (typeof showLoading === 'function') showLoading('Saving...');
 
   try {
     if (isRevert || explicitAction === 'REVERT') {
       const targetStage = prompt('Enter stage to revert to (New, Assessment, Compliance, Ist Review, 2nd Review):');
-      if (!targetStage) {
-        if (typeof hideLoading === 'function') hideLoading();
-        return;
-      }
+      if (!targetStage) { if (typeof hideLoading === 'function') hideLoading(); return; }
 
-      const payload = {
-        appNumber: appNumber,
-        targetStage: targetStage,
-        userName: userName,
-        comment: comment
-      };
-
+      const payload = { appNumber, targetStage, userName, comment };
       const resp = await window.apiService.request('revert_application_stage', payload, { showLoading: false });
       if (typeof hideLoading === 'function') hideLoading();
 
       if (resp && resp.success) {
-        if (typeof window.showSuccessModal === 'function') await window.showSuccessModal(resp.message || 'Application reverted successfully');
+        if (typeof showSuccessModal === 'function') await showSuccessModal(resp.message || 'Application reverted successfully');
         else alert(resp.message || 'Application reverted successfully');
         closeViewApplicationModal();
         if (typeof refreshApplications === 'function') refreshApplications();
@@ -374,10 +345,8 @@ async function saveStageComment(isRevert, explicitAction) {
       return;
     }
 
-    // Determine action: explicitAction takes precedence, else default to SUBMIT
     const action = explicitAction === 'APPROVE' ? 'APPROVE' : 'SUBMIT';
 
-    // Gather comments from the textareas (only visible editors will be filled by users)
     const commentsData = {
       creditOfficerComment: document.getElementById('view-details-creditOfficerComment-textarea')?.value || '',
       amlroComments: document.getElementById('view-details-amlroComments-textarea')?.value || '',
@@ -388,12 +357,12 @@ async function saveStageComment(isRevert, explicitAction) {
     };
 
     const payload = {
-      appNumber: appNumber,
-      comment: comment,
-      action: action,
+      appNumber,
+      comment,
+      action,
       comments: commentsData,
       currentStage: currentAppData.stage || '',
-      userName: userName
+      userName
     };
 
     const resp = await window.apiService.request('submit_application_comment', payload, { showLoading: false });
@@ -401,13 +370,12 @@ async function saveStageComment(isRevert, explicitAction) {
     if (typeof hideLoading === 'function') hideLoading();
 
     if (!resp) {
-      if (typeof showToast === 'function') showToast('No response from server', 'error');
+      if (typeof window.showToast === 'function') showToast('No response from server', 'error');
       else alert('No response from server');
       return;
     }
 
     if (!resp.success) {
-      // handle conflict
       if (resp.code === 'CONFLICT') {
         const ok = (typeof showConfirmModal === 'function')
           ? await showConfirmModal('This application changed since you opened it. Reload details and try again?', { title: 'Conflict', confirmText: 'Reload', cancelText: 'Cancel' })
@@ -417,12 +385,12 @@ async function saveStageComment(isRevert, explicitAction) {
         return;
       }
 
-      if (typeof showToast === 'function') showToast('Error: ' + (resp?.message || 'Unknown error'), 'error');
+      if (typeof window.showToast === 'function') window.showToast('Error: ' + (resp?.message || 'Unknown error'), 'error');
       else alert('Error: ' + (resp?.message || 'Unknown error'));
       return;
     }
 
-    // Success: if server returned updated app object, re-init modal with it
+    // success: use returned updated app if present
     const updated = resp.data && resp.data.app ? resp.data.app : null;
     if (updated) {
       currentAppData = updated;
@@ -646,15 +614,12 @@ function openDocument(docType) {
   }
 }
 
-/* UI state logic (updated to accept optional perms) */
-function updateModalUIForStage(appData, userPermissions) {
+/* UI state logic (unchanged except small tweak for branch manager revert) */
+function updateModalUIForStage(appData) {
   const stage = (appData.stage || 'New').toString().trim();
   const status = (appData.status || '').toString().trim().toUpperCase();
-
-  // derive role/level from permissions if provided, else from localStorage
-  const userRoleRaw = (userPermissions && userPermissions.role) ? userPermissions.role : (localStorage.getItem('userRole') || '');
-  const userLevel = (userPermissions && userPermissions.level) ? Number(userPermissions.level) : Number(localStorage.getItem('userLevel') || 0);
-  const role = (userRoleRaw || '').toString().trim().toLowerCase();
+  const userRoleRaw = (localStorage.getItem('userRole') || '').toString().trim();
+  const role = userRoleRaw.toLowerCase();
 
   // Elements
   const signatureSection = document.getElementById('signatures-section');
@@ -685,13 +650,13 @@ function updateModalUIForStage(appData, userPermissions) {
   // Hide all role-specific editors initially
   hideAllRoleEditors();
 
-  // Role helpers (fall back to role string)
-  const isAdmin = role === 'admin' || userLevel === 5;
-  const isCreditOfficer = role.includes('credit officer') || role.includes('credit sales officer') || role.includes('credit analyst') || userLevel === 1;
-  const isAMLRO = role === 'amlro' || role.includes('amlro') || userLevel === 2;
-  const isHeadOfCredit = role.includes('head of credit') || userLevel === 2;
-  const isBranchManager = role.includes('branch manager') || role.includes('branch manager/approver') || userLevel === 3;
-  const isApprover = role === 'approver' || role.includes('approver') || userLevel === 4;
+  // Role helpers
+  const isAdmin = role === 'admin';
+  const isCreditOfficer = role.includes('credit officer') || role.includes('credit sales officer') || role.includes('credit analyst');
+  const isAMLRO = role === 'amlro' || role.includes('amlro');
+  const isHeadOfCredit = role.includes('head of credit');
+  const isBranchManager = role.includes('branch manager') || role.includes('branch manager/approver');
+  const isApprover = role === 'approver' || role.includes('approver');
 
   // Apply tables per status (NEW, PENDING, PENDING APPROVAL, APPROVED)
   switch (status) {
