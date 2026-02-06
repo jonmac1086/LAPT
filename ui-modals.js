@@ -1,9 +1,7 @@
-// ui-modals.js - Modernized modal & toast system (fixed overlay visibility)
-// - Promise-based showConfirmModal/showSuccessModal
-// - showGlobalLoader / hideGlobalLoader (ref-counted)
-// - showToast with stacked toasts
-// - Modal stacking, focus trap, ESC to close, backdrop click
-// - Backwards-compatible with previous API names
+// ui-modals.js - Modernized modal & toast system (updated)
+// - Compact modal variant for confirmation dialogs
+// - Improved showConfirmModal / showSuccessModal options (subtitle, size)
+// - Backwards-compatible API
 
 (function () {
   if (window.__ui_modals_installed) return;
@@ -21,7 +19,6 @@
   }
 
   /* ---------- DOM containers ---------- */
-  // Modal overlay container (singleton)
   let modalRoot = document.getElementById('ui-modal-overlay');
   if (!modalRoot) {
     modalRoot = document.createElement('div');
@@ -31,7 +28,6 @@
     document.body.appendChild(modalRoot);
   }
 
-  // Global loader
   let globalLoader = document.getElementById('ui-global-loader');
   if (!globalLoader) {
     globalLoader = document.createElement('div');
@@ -45,7 +41,6 @@
     document.body.appendChild(globalLoader);
   }
 
-  // Toast container
   let toastContainer = document.getElementById('ui-toast-container');
   if (!toastContainer) {
     toastContainer = document.createElement('div');
@@ -94,7 +89,7 @@
           if (document.activeElement === last) { e.preventDefault(); first.focus(); }
         }
       } else if (e.key === 'Escape') {
-        // do nothing here; modal listeners will handle ESC closing if allowed
+        // handled elsewhere
       }
     }
     document.addEventListener('keydown', handleKey);
@@ -114,11 +109,13 @@
     }
   }
 
-  function renderModal({ title = '', body = '', actions = [], options = {} } = {}) {
-    // options: { width, ariaLabel, closeOnBackdrop=true, escapeCloses=true, onClose }
+  function renderModal({ title = '', subtitle = '', body = '', actions = [], options = {} } = {}) {
+    // options: { size: 'default'|'compact'|'small', ariaLabel, closeOnBackdrop=true, escapeCloses=true, onClose }
     const id = 'ui-modal-' + Math.random().toString(36).slice(2,9);
     const modalWrapper = document.createElement('div');
     modalWrapper.className = 'ui-modal';
+    if (options.size === 'compact') modalWrapper.classList.add('compact');
+    if (options.size === 'small') modalWrapper.classList.add('small');
     modalWrapper.id = id;
     modalWrapper.tabIndex = -1;
     modalWrapper.setAttribute('role', 'dialog');
@@ -127,8 +124,15 @@
 
     // header
     const header = document.createElement('div'); header.className = 'ui-modal-header';
+    const headLeft = document.createElement('div'); headLeft.style.flex = '1';
     const titleNode = document.createElement('div'); titleNode.className = 'ui-modal-title'; titleNode.innerHTML = escapeHtml(title || '');
-    header.appendChild(titleNode);
+    headLeft.appendChild(titleNode);
+    if (subtitle) {
+      const sub = document.createElement('div'); sub.className = 'ui-modal-subtitle'; sub.innerHTML = escapeHtml(subtitle);
+      headLeft.appendChild(sub);
+    }
+    header.appendChild(headLeft);
+
     const closeBtn = document.createElement('button'); closeBtn.className = 'ui-btn ghost'; closeBtn.type='button'; closeBtn.setAttribute('aria-label','Close'); closeBtn.innerHTML = 'Close';
     header.appendChild(closeBtn);
 
@@ -156,7 +160,7 @@
     modalWrapper.appendChild(bodyNode);
     modalWrapper.appendChild(actionsNode);
 
-    // overlay item that contains the modal (for stacking)
+    // overlay item
     const overlayItem = document.createElement('div');
     overlayItem.className = 'ui-modal-overlay-item';
     overlayItem.style.position = 'fixed';
@@ -168,7 +172,6 @@
     overlayItem.style.background = 'linear-gradient(0deg, rgba(2,6,23,0.4), rgba(2,6,23,0.28))';
     overlayItem.appendChild(modalWrapper);
 
-    // helpers to remove
     let releaseTrap = null;
     let resolved = false;
 
@@ -176,7 +179,6 @@
       if (resolved) return;
       resolved = true;
       try {
-        // remove overlay from modalRoot
         if (overlayItem.parentNode === modalRoot) modalRoot.removeChild(overlayItem);
         const idx = modalStack.indexOf(overlayItem);
         if (idx >= 0) modalStack.splice(idx, 1);
@@ -185,75 +187,58 @@
       try { document.body.style.overflow = ''; } catch(e){}
       if (typeof options.onClose === 'function') options.onClose(result);
       if (promiseResolve) promiseResolve(result);
-      // Update active state of modalRoot (hide overlay if stack empty)
       updateModalRootActiveState();
     }
 
-    // close on backdrop
     overlayItem.addEventListener('click', (e) => {
       if (e.target === overlayItem && options.closeOnBackdrop !== false) close(null);
     });
 
-    // close button
     closeBtn.addEventListener('click', () => close(null));
 
-    // keyboard: escape
     function handleEsc(e) { if (e.key === 'Escape' && options.escapeCloses !== false) close(null); }
     document.addEventListener('keydown', handleEsc);
 
-    // focus trap
     releaseTrap = trapFocus(modalWrapper);
 
-    // cleanup when removed
-    const cleanupOnRemove = () => {
-      document.removeEventListener('keydown', handleEsc);
-      if (releaseTrap) releaseTrap();
-    };
-
-    // push onto stack & display
     modalStack.push(overlayItem);
     modalRoot.appendChild(overlayItem);
-
-    // Ensure modalRoot visible by toggling 'active' class
     updateModalRootActiveState();
-
-    // prevent body scroll while modal(s) open
     document.body.style.overflow = 'hidden';
+    setTimeout(() => { try { modalWrapper.focus(); } catch (e) {} }, 40);
 
-    setTimeout(() => {
-      try { modalWrapper.focus(); } catch (e) {}
-    }, 40);
-
-    // Promise for caller
     let promiseResolve;
     const promise = new Promise((resolve) => { promiseResolve = resolve; });
 
-    // return API
-    return { close, modal: modalWrapper, overlay: overlayItem, promise, cleanup: cleanupOnRemove };
+    return { close, modal: modalWrapper, overlay: overlayItem, promise, cleanup: () => { document.removeEventListener('keydown', handleEsc); if (releaseTrap) releaseTrap(); } };
   }
 
-  /* ---------- Simple convenience modals (promise-based) ---------- */
+  /* ---------- Convenience modals with improved design and options ---------- */
   async function showSuccessModal(message = 'Success', opts = {}) {
     const title = opts.title || 'Success';
+    const subtitle = opts.subtitle || '';
     const primaryText = opts.primaryText || 'OK';
     const modal = renderModal({
       title,
+      subtitle,
       body: `<div style="white-space:pre-wrap;">${escapeHtml(message)}</div>`,
       actions: [
         { text: primaryText, className: 'primary', autoFocus: true, onClick: () => {} }
       ],
-      options: { closeOnBackdrop: true, escapeCloses: true }
+      options: { size: opts.size || 'compact', closeOnBackdrop: true, escapeCloses: true }
     });
     return modal.promise;
   }
 
   async function showConfirmModal(message = 'Are you sure?', opts = {}) {
     const title = opts.title || 'Please confirm';
-    const confirmText = opts.confirmText || 'Yes';
+    const subtitle = opts.subtitle || '';
+    const confirmText = opts.confirmText || 'Confirm';
     const cancelText = opts.cancelText || 'Cancel';
     const danger = !!opts.danger;
     const modal = renderModal({
       title,
+      subtitle,
       body: `<div style="white-space:pre-wrap;">${escapeHtml(message)}</div>`,
       actions: [
         {
@@ -268,12 +253,12 @@
           onClick: () => { modal.close(true); }
         }
       ],
-      options: { closeOnBackdrop: false, escapeCloses: true }
+      options: { size: opts.size || 'compact', closeOnBackdrop: false, escapeCloses: true }
     });
     return modal.promise;
   }
 
-  /* ---------- Toasts ---------- */
+  /* ---------- Toasts (unchanged) ---------- */
   let toastId = 0;
   function showToast(message = '', type = 'info', { timeout = 4000, action } = {}) {
     const id = ++toastId;
@@ -333,19 +318,10 @@
   window.showConfirmModal = showConfirmModal;
   window.showToast = showToast;
 
-  // Also keep older names if expected
   if (!window.showLoading) window.showLoading = showGlobalLoader;
   if (!window.hideLoading) window.hideLoading = hideGlobalLoader;
 
-  // Expose a tiny API for advanced usage
-  window.__ui_modals = {
-    renderModal,
-    showGlobalLoader,
-    hideGlobalLoader,
-    showSuccessModal,
-    showConfirmModal,
-    showToast
-  };
+  window.__ui_modals = { renderModal, showGlobalLoader, hideGlobalLoader, showSuccessModal, showConfirmModal, showToast };
 
-  console.log('ui-modals.js (modern, overlay fix) loaded');
+  console.log('ui-modals.js (modern, compact confirm) loaded');
 })();
