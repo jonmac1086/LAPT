@@ -1,14 +1,75 @@
-// viewApplicationJS - View Application Modal JavaScript (patched)
+// viewApplicationJS - View Application Modal JavaScript (UPDATED with modal-local loading)
 // - Uses server permissions when available to show comment editors by role
 // - Falls back to client-stored role if server permissions unavailable
 // - Restores NET INCOME into table
+// - UPDATED: Uses modal-local loading for all submissions (matches newApps.js pattern)
 
-console.log('viewApplicationJS loaded (patched for role-driven editors)');
+console.log('viewApplicationJS loaded (with modal-local loading)');
 
 let currentAppData = null;
 let currentUserPermissions = null; // cached permissions for the logged-in user
 
-// Map status display -> style
+// ========== MODAL-LOCAL LOADING HELPERS ==========
+/**
+ * Show loading indicator inside the view modal (modal-local)
+ * Creates a centered card with spinner inside the .modal-content
+ */
+function showViewModalLoading(message = 'Processing...') {
+  try {
+    const modal = document.getElementById('viewApplicationModal');
+    if (!modal) return;
+
+    const container = modal.querySelector('.modal-content');
+    if (!container) return;
+
+    // Ensure container has positioning context
+    const computedPosition = window.getComputedStyle(container).position;
+    if (!computedPosition || computedPosition === 'static') {
+      container.style.position = 'relative';
+    }
+
+    // Create or show existing loader
+    let loader = modal.querySelector('.modal-local-loading');
+    if (!loader) {
+      loader = document.createElement('div');
+      loader.className = 'modal-local-loading';
+      loader.innerHTML = `
+        <div class="modal-local-card" role="status" aria-live="polite" aria-label="Loading">
+          <div class="spinner large" aria-hidden="true"></div>
+          <div class="modal-local-message"></div>
+        </div>
+      `;
+      container.appendChild(loader);
+    }
+
+    const msgEl = loader.querySelector('.modal-local-message');
+    if (msgEl) msgEl.textContent = message;
+    loader.style.display = 'flex';
+
+  } catch (e) {
+    console.warn('showViewModalLoading error', e);
+  }
+}
+
+/**
+ * Hide loading indicator inside the view modal
+ */
+function hideViewModalLoading() {
+  try {
+    const modal = document.getElementById('viewApplicationModal');
+    if (!modal) return;
+
+    const loader = modal.querySelector('.modal-local-loading');
+    if (loader) {
+      // Remove element entirely so next call creates fresh instance
+      loader.parentNode && loader.parentNode.removeChild(loader);
+    }
+  } catch (e) {
+    console.warn('hideViewModalLoading error', e);
+  }
+}
+
+// ========== HELPER FUNCTIONS ==========
 function setStatusBadge(statusRaw, stageRaw) {
   const badge = document.getElementById('applicationStatusBadge');
   if (!badge) return;
@@ -47,7 +108,6 @@ function setStatusBadge(statusRaw, stageRaw) {
   badge.style.border = `1px solid ${shadeColor(bg, -8)}`;
 }
 
-// small helper to darken/lighten a hex color
 function shadeColor(hexColor, percent) {
   try {
     const h = hexColor.replace('#','');
@@ -64,7 +124,7 @@ function shadeColor(hexColor, percent) {
   }
 }
 
-// Fetch user permissions from server (uses api action 'get_user_permissions')
+// ========== FETCH USER PERMISSIONS ==========
 async function fetchUserPermissions(userName) {
   try {
     if (!userName) return null;
@@ -78,14 +138,17 @@ async function fetchUserPermissions(userName) {
   }
 }
 
-// Main function to fetch and show application details using ApiService
+// ========== MAIN VIEW FUNCTION ==========
 async function viewApplication(appNumber) {
   if (!appNumber) {
     console.error('No application number provided');
     return;
   }
 
-  if (typeof showLoading === 'function') showLoading('Loading application details...');
+  // Use the improved showLoading (which uses modal-local if modal is open)
+  if (typeof showLoading === 'function') {
+    showLoading('Loading application details...');
+  }
 
   try {
     const userName = localStorage.getItem('loggedInName') || '';
@@ -94,7 +157,6 @@ async function viewApplication(appNumber) {
     if (typeof hideLoading === 'function') hideLoading();
 
     if (response && response.success && response.data) {
-      // store and initialize UI
       initViewApplicationModal(response.data);
     } else {
       console.error('Failed to fetch application details', response);
@@ -211,11 +273,14 @@ function closeViewApplicationModal() {
   if (modal) {
     modal.style.display = 'none';
     modal.classList.remove('active');
+    hideViewModalLoading(); // Clean up any loader
   }
   try { document.body.style.overflow = ''; } catch (e) {}
+  currentAppData = null;
+  sessionStorage.removeItem('currentViewingApp');
 }
 
-// Open edit section from view
+// ========== EDIT SECTION ==========
 function openEditSection(tabName) {
   try {
     if (!currentAppData || !currentAppData.appNumber) {
@@ -225,33 +290,22 @@ function openEditSection(tabName) {
     }
     closeViewApplicationModal();
     sessionStorage.setItem('editTab', tabName || 'tab1');
-    if (typeof showNewApplicationModal === 'function') showNewApplicationModal(currentAppData.appNumber);
-    else window.showNewApplicationModal && window.showNewApplicationModal(currentAppData.appNumber);
+    if (typeof showNewApplicationModal === 'function') {
+      showNewApplicationModal(currentAppData.appNumber);
+    }
   } catch (e) {
     console.error('Error opening edit section:', e);
   }
 }
 
-// Hide all editors
+// ========== ROLE-BASED COMMENT EDITORS ==========
 function hideAllRoleEditors() {
   document.querySelectorAll('.comment-editor').forEach(el => {
     el.style.display = 'none';
   });
 }
 
-// Show editors matching a role (simple helper)
-function showEditorForRole(roleName) {
-  if (!roleName) return;
-  const roleLower = roleName.toString().trim().toLowerCase();
-  document.querySelectorAll('.comment-editor').forEach(el => {
-    const roles = (el.dataset.role || '').split(',').map(r => r.trim().toLowerCase());
-    if (roles.includes(roleLower)) el.style.display = 'block';
-  });
-}
-
-// showRelevantCommentEditors: accepts either a permission object or a role string
 function showRelevantCommentEditors(roleOrPerms, stage) {
-  // resolve role string from roleOrPerms
   let role = '';
   if (!roleOrPerms) {
     role = (localStorage.getItem('userRole') || '').toString().trim();
@@ -266,7 +320,7 @@ function showRelevantCommentEditors(roleOrPerms, stage) {
   hideAllRoleEditors();
 
   if (!role) {
-    console.warn('showRelevantCommentEditors: no role available (server and local fallback missing)');
+    console.warn('showRelevantCommentEditors: no role available');
     return;
   }
 
@@ -304,38 +358,43 @@ function showRelevantCommentEditors(roleOrPerms, stage) {
   });
 
   if (shown === 0) {
-    console.info(`No comment editors shown for role="${role}" stage="${stage}". Check data-role/data-stages attributes:`);
-    editors.forEach((el, idx) => {
-      console.info(`#${idx+1}`, { role: el.dataset.role, stages: el.dataset.stages, visible: getComputedStyle(el).display });
-    });
+    console.info(`No comment editors shown for role="${role}" stage="${stage}".`);
   }
 }
 
-// saveStageComment uses API and server-side enforcement
+// ========== SAVE & SUBMIT STAGE COMMENT (WITH MODAL-LOCAL LOADING) ==========
 async function saveStageComment(isRevert, explicitAction) {
   if (!currentAppData || !currentAppData.appNumber) {
     if (typeof window.showToast === 'function') window.showToast('Application data not available.', 'error');
     else alert('Application data not available.');
     return;
   }
+
   const appNumber = currentAppData.appNumber;
-  const comment = (document.getElementById('stageComment') || {}).value || '';
   const userName = localStorage.getItem('loggedInName') || '';
 
-  if (typeof showLoading === 'function') showLoading('Saving...');
+  // Show modal-local loading
+  showViewModalLoading('Processing...');
 
   try {
     if (isRevert || explicitAction === 'REVERT') {
       const targetStage = prompt('Enter stage to revert to (New, Assessment, Compliance, Ist Review, 2nd Review):');
-      if (!targetStage) { if (typeof hideLoading === 'function') hideLoading(); return; }
+      if (!targetStage) {
+        hideViewModalLoading();
+        return;
+      }
 
-      const payload = { appNumber, targetStage, userName, comment };
+      const payload = { appNumber, targetStage, userName };
       const resp = await window.apiService.request('revert_application_stage', payload, { showLoading: false });
-      if (typeof hideLoading === 'function') hideLoading();
+      
+      hideViewModalLoading();
 
       if (resp && resp.success) {
-        if (typeof showSuccessModal === 'function') await showSuccessModal(resp.message || 'Application reverted successfully');
-        else alert(resp.message || 'Application reverted successfully');
+        if (typeof window.showSuccessModal === 'function') {
+          await window.showSuccessModal(resp.message || 'Application reverted successfully');
+        } else {
+          alert(resp.message || 'Application reverted successfully');
+        }
         closeViewApplicationModal();
         if (typeof refreshApplications === 'function') refreshApplications();
       } else {
@@ -358,7 +417,6 @@ async function saveStageComment(isRevert, explicitAction) {
 
     const payload = {
       appNumber,
-      comment,
       action,
       comments: commentsData,
       currentStage: currentAppData.stage || '',
@@ -367,18 +425,18 @@ async function saveStageComment(isRevert, explicitAction) {
 
     const resp = await window.apiService.request('submit_application_comment', payload, { showLoading: false });
 
-    if (typeof hideLoading === 'function') hideLoading();
+    hideViewModalLoading();
 
     if (!resp) {
-      if (typeof window.showToast === 'function') showToast('No response from server', 'error');
+      if (typeof window.showToast === 'function') window.showToast('No response from server', 'error');
       else alert('No response from server');
       return;
     }
 
     if (!resp.success) {
       if (resp.code === 'CONFLICT') {
-        const ok = (typeof showConfirmModal === 'function')
-          ? await showConfirmModal('This application changed since you opened it. Reload details and try again?', { title: 'Conflict', confirmText: 'Reload', cancelText: 'Cancel' })
+        const ok = (typeof window.showConfirmModal === 'function')
+          ? await window.showConfirmModal('This application changed since you opened it. Reload details and try again?', { title: 'Conflict', confirmText: 'Reload', cancelText: 'Cancel' })
           : confirm('This application changed since you opened it. Reload details and try again?');
 
         if (ok) viewApplication(appNumber);
@@ -390,34 +448,36 @@ async function saveStageComment(isRevert, explicitAction) {
       return;
     }
 
-    // success: use returned updated app if present
+    // Success: use returned updated app if present
     const updated = resp.data && resp.data.app ? resp.data.app : null;
     if (updated) {
       currentAppData = updated;
       initViewApplicationModal(updated);
-      if (typeof showSuccessModal === 'function') await showSuccessModal(resp.message || 'Action completed successfully');
-      else alert(resp.message || 'Action completed successfully');
+      if (typeof window.showSuccessModal === 'function') {
+        await window.showSuccessModal(resp.message || 'Action completed successfully');
+      } else {
+        alert(resp.message || 'Action completed successfully');
+      }
       if (typeof refreshApplications === 'function') refreshApplications();
     } else {
-      if (typeof showSuccessModal === 'function') await showSuccessModal(resp.message || 'Action completed successfully');
-      else alert(resp.message || 'Action completed successfully');
+      if (typeof window.showSuccessModal === 'function') {
+        await window.showSuccessModal(resp.message || 'Action completed successfully');
+      } else {
+        alert(resp.message || 'Action completed successfully');
+      }
       closeViewApplicationModal();
       if (typeof refreshApplications === 'function') refreshApplications();
     }
 
   } catch (err) {
-    if (typeof hideLoading === 'function') hideLoading();
+    hideViewModalLoading();
     console.error('Error saving stage comment:', err);
     if (typeof window.showToast === 'function') window.showToast('Error: ' + (err?.message || err), 'error');
     else alert('Error: ' + (err?.message || err));
   }
 }
 
-/* -------------------------
-   Existing helper functions
-   (kept mostly unchanged)
-   ------------------------- */
-
+// ========== POPULATE REVIEW DATA ==========
 function populateLoanHistoryReview(loanHistory) {
   const tbody = document.querySelector('#view-loanHistoryTable tbody');
   if (!tbody) return;
@@ -456,7 +516,6 @@ function populatePersonalBudgetReview(personalBudget) {
   });
 
   function appendGroup(title, items) {
-    // header row for group
     const header = document.createElement('tr');
     header.innerHTML = `<td colspan="2" style="font-weight:bold; padding-top:8px;">${escapeHtml(title)}</td>`;
     tbody.appendChild(header);
@@ -479,7 +538,7 @@ function populatePersonalBudgetReview(personalBudget) {
   appendGroup('EXPENDITURE', groups.Expense);
   appendGroup('REPAYMENT', groups.Repayment);
 
-  // Restore NET INCOME and DSR rows into the table (single summary rows)
+  // NET INCOME and DSR rows
   let netIncomeVal = null;
   if (currentAppData && currentAppData.netIncome !== undefined && currentAppData.netIncome !== null) {
     netIncomeVal = currentAppData.netIncome;
@@ -499,7 +558,6 @@ function populatePersonalBudgetReview(personalBudget) {
     else dsrVal = '0.00%';
   }
 
-  // Append summary rows to the table (single-row summary)
   const netRow = document.createElement('tr');
   netRow.innerHTML = `<td style="text-align:right; font-weight:bold;">NET INCOME</td><td style="font-weight:bold;">${formatCurrency(netIncomeVal)}</td>`;
   tbody.appendChild(netRow);
@@ -517,7 +575,6 @@ function populateMonthlyTurnoverReview(turnover) {
   const months = ['month1','month2','month3'];
   let hasData = false;
 
-  // Accumulators
   let totalCr = 0, totalDr = 0, totalMax = 0, totalMin = 0;
   let countedMonths = 0;
 
@@ -531,7 +588,6 @@ function populateMonthlyTurnoverReview(turnover) {
 
     if (monthVal || cr || dr || maxB || minB) hasData = true;
 
-    // Build month row
     const row = document.createElement('tr');
     row.innerHTML = `<td>${escapeHtml(monthVal || ('Month ' + n))}</td>
                      <td>${formatCurrency(cr)}</td>
@@ -567,9 +623,7 @@ function populateMonthlyTurnoverReview(turnover) {
 
   const monthsForAvg = countedMonths > 0 ? countedMonths : 3;
   appendCalcRow('<strong>Monthly Average</strong>', totalCr / monthsForAvg, totalDr / monthsForAvg, totalMax / monthsForAvg, totalMin / monthsForAvg);
-
   appendCalcRow('<strong>Weekly Average</strong>', totalCr / (monthsForAvg * 4), totalDr / (monthsForAvg * 4), totalMax / (monthsForAvg * 4), totalMin / (monthsForAvg * 4));
-
   appendCalcRow('<strong>Daily Average</strong>', totalCr / (monthsForAvg * 30), totalDr / (monthsForAvg * 30), totalMax / (monthsForAvg * 30), totalMin / (monthsForAvg * 30));
 }
 
@@ -614,7 +668,7 @@ function openDocument(docType) {
   }
 }
 
-/* UI state logic (unchanged except small tweak for branch manager revert) */
+// ========== UI STATE FOR STAGE ==========
 function updateModalUIForStage(appData) {
   const stage = (appData.stage || 'New').toString().trim();
   const status = (appData.status || '').toString().trim().toUpperCase();
@@ -658,27 +712,27 @@ function updateModalUIForStage(appData) {
   const isBranchManager = role.includes('branch manager') || role.includes('branch manager/approver');
   const isApprover = role === 'approver' || role.includes('approver');
 
-  // Apply tables per status (NEW, PENDING, PENDING APPROVAL, APPROVED)
+  // Apply tables per status
   switch (status) {
     case 'NEW':
     case '':
       if (isCreditOfficer || isAdmin) {
-        showEditorForRole('Credit Officer');
+        showRelevantCommentEditors('Credit Officer', stage);
         if (submitBtn) submitBtn.style.display = 'inline-block';
       }
       break;
 
     case 'PENDING':
       if (isAMLRO || isAdmin) {
-        showEditorForRole('AMLRO');
+        showRelevantCommentEditors('AMLRO', stage);
         if (submitBtn) submitBtn.style.display = 'inline-block';
       }
       if (isHeadOfCredit || isAdmin) {
-        showEditorForRole('Head of Credit');
+        showRelevantCommentEditors('Head of Credit', stage);
         if (submitBtn) submitBtn.style.display = 'inline-block';
       }
       if (isBranchManager || isAdmin) {
-        showEditorForRole('Branch Manager/Approver');
+        showRelevantCommentEditors('Branch Manager/Approver', stage);
         if (submitBtn) submitBtn.style.display = 'inline-block';
         if (approveBtn) approveBtn.style.display = 'inline-block';
         if (revertBtn) revertBtn.style.display = 'inline-block';
@@ -687,7 +741,7 @@ function updateModalUIForStage(appData) {
 
     case 'PENDING APPROVAL':
       if (isApprover || isAdmin) {
-        showEditorForRole('Approver');
+        showRelevantCommentEditors('Approver', stage);
         if (approveBtn) approveBtn.style.display = 'inline-block';
         if (revertBtn) revertBtn.style.display = 'inline-block';
       }
@@ -711,7 +765,7 @@ function updateModalUIForStage(appData) {
   }
 }
 
-/* small helper / fallbacks (kept) */
+// ========== HELPER UTILITIES ==========
 function safeSetText(id, value) {
   const el = document.getElementById(id);
   if (!el) return;
@@ -722,21 +776,25 @@ function safeSetText(id, value) {
   const normalized = value.toString().replace(/\r\n/g, '\n');
   el.textContent = normalized;
 }
+
 function safeSetValue(id, value) {
   const el = document.getElementById(id);
   if (el) el.value = value;
 }
+
 function formatCurrency(value) {
   if (value === null || value === undefined) return '0.00';
   const num = parseFloat(value);
   return isNaN(num) ? '0.00' : num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
+
 function formatDate(dateString) {
   if (!dateString) return 'N/A';
   const d = new Date(dateString);
   if (isNaN(d)) return dateString;
   return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }
+
 function escapeHtml(s) {
   if (!s) return '';
   return s.toString().replace(/[&<>"']/g, function(m) {
@@ -744,7 +802,7 @@ function escapeHtml(s) {
   });
 }
 
-// Expose functions
+// ========== EXPORTS ==========
 window.initViewApplicationModal = initViewApplicationModal;
 window.closeViewApplicationModal = closeViewApplicationModal;
 window.viewApplication = viewApplication;
